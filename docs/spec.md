@@ -201,37 +201,47 @@ export function presetOptions() // → [{ label, value }] 给 UI 选项（含 cu
 
 ## 7. 展示层（`lib/view.js` + `lib/format.js` + `lib/index.js`）
 
-- 视图 `v: 2`；面板标题「API 余额」；总字节 ≤ 32 KiB、≤ 120 节点、≤ 8 层。
-- 面板结构（自上而下）：
-  1. 总余额 `metric`（值绑定 `data.total.text`，caption 绑定 `data.total.caption`；没有可汇总的服务时为 `'—'`）。
+> recon（docs/recon.md）确认的平台事实，按此实现：
+> - 视图根节点 `v: 2`、`accent: 'app'`；清单 `dshGo.v` 仍为 `1`；**不写 `minApp`**；
+>   老 App 用 `caps.components` 判断，缺 `form`/`textField` 等时退成 v1 只读摘要 + 升级提示。
+> - `options` 组件上限 8 项，**服务列表用 `list` 行内 action**（`items` 绑 `data.rows`，行里放 `action:{id:'select',args:{id}}`）。
+> - `panel` 的 `actions` 支持延后效果；`pending.label ≤16 字`、`timeoutMs=30000`；延后结果只能用 `patch`/`toast`/`copy`/`insert`。
+> - patch 是 RFC 7386（数组整体替换、`null` 删除、≤16 KiB），数据整份 ≤32 KiB；**数据对象每次都传新对象**。
+> - 面板 GET 最多等 1 秒首帧：`data()` 先同步 emit 缓存，再后台刷新；`strip` 的 data 常驻，**只读缓存、绝不联网**。
+> - 结构随状态变化（表单展开/收起、测试结果、删除确认）时，视图函数闭包读状态，状态变后调 `ctx.dshGo.refresh('balance')`。
+
+- 面板结构（自上而下，条件块按状态出现）：
+  1. 总余额 `metric`（值 `data.total.text`，caption `data.total.caption`；没有可汇总值为 `'—'`）。
   2. 一行 `actions`：刷新、添加服务。
-  3. 服务列表 `list`（绑定 `data.rows`：标题=名称，副标题=状态/更新时间，尾部=余额文本，tone 表示成功/失败）。
-  4. 选择服务 `options`（绑定 `data.options`，`selected` 绑定 `data.selectedId`，动作 `select`）。
-  5. 选中服务明细 `keyValue`（绑定 `data.detail.rows`）+ 错误 `callout`（`data.detail.error`）。
-  6. 选中服务操作 `actions`：编辑、删除、测试。
-  7. 表单（`form`，提交动作 `save`）：预设选择、名称、地址、方法、鉴权方式、密钥（`secret`）、用户名/登录地址（login 时）、余额字段路径、币种路径、明细路径（每行「标签=路径」多行文本）、除数、乘数、符号、小数位、额外请求头、请求体；`form` 里字段全部 bind 到 `data.form.*`；再加一个「取消」动作。
-- 状态条：`data(scope, emit)` 推 `{ text, icon: 'wallet' }`，文本 ≤ 24 字，例如 `'余额 ¥1,234 · 3 家'`；`stripEnabled=false` 或没有结果时 `{ text: '' }`（App 不显示空文本）。
-- 面板 `data`：首帧先推缓存（`results` 里有的），状态里 `busy` 为真时 caption 显示「更新中…」；后台刷新完再推一次。
-- 交互（`lib/index.js` 的 `actions`）：
-  - `refresh`：延后效果（`pending` label ≤16 字、timeoutMs=30000），`queryAll(enabled)` → 写 `results`、`saveResults`、推数据、`toast`「已更新 N 家」；`signal.aborted` 就停。
-  - `select`：`event.value.value` 是 provider id → 设 `selectedId`，清空 `test`。
-  - `add`：`form = 空白 custom 草稿`；`preset`：`event.value.value` 模板 id → 填草稿（保留用户已填的 name/url？v1 简单覆盖非密钥字段）。
-  - `edit`：选中服务 → `providerToDraft`。
-  - `save`：`event.value.values['data.form.<field>']` 取表单值组装 draft（以 `data.form` 为底，覆盖 form 里出现的字段），`validateProvider(draft, {existing})`；失败 `toast` 第一条错误；成功 upsert、保存配置、`form=null`、`selectedId=id`、`toast '已保存'`。
-  - `delete`：选中 → 删除 + 存配置 + `toast '已删除'`。
-  - `test`：延后效果，`queryProvider(selected, {preview:true})` → `test = { text, raw }`，`patch` 到 `data`。
-  - `form-cancel`：`form=null`。
-  - 所有 `actions` 的返回值/效果必须符合 bridge 白名单（`insert/copy/toast/patch/refresh/open/link/command`；延后结果只能 `insert/copy/toast/patch`）。
-- 文案：中文优先，英文 `words(locale)` 给一份；`locale` 从 `caps.locale` 取（`startsWith('en')`）。
+  3. 服务列表 `list`（`items: {$:'data.rows'}`）：行 = `{ title, subtitle, trailing, tone, action:{id:'select',args:{id}} }`；没有服务时用一行 `emptyState`/`callout` 引导添加。
+  4. 选中服务：`keyValue`（`data.detail.rows`）+ `callout`（`data.detail.error`）+ `actions`「编辑 / 删除」。
+  5. 删除确认（`data.confirmDelete` 存在时）：`callout` + `confirm`（动作 `delete`，`event.value.confirmed`）。
+  6. 测试结果（`data.test` 存在时）：`codeBlock`（`data.test.raw`）+ `actions`「关闭」。
+  7. 服务表单（`data.formOpen` 时）：`form`（提交动作 `save`）内放 `tabs` 三组：基本信息 / 鉴权 / 字段与显示；表单外「取消」动作。
+- 表单字段（`bind` 全部为 `data.form.<字段>`，同一视图内不重复）：
+  `preset`(select 3 项) `name` `url` `method`(select) `authType`(select 6 项) `secret` `secretHeader` `secretParam` `username` `loginUrl` `tokenPath` `tokenHeader` `tokenPrefix` `balancePath` `currencyPath` `detailText`（每行 `标签=路径`）`divisor`(number) `multiplier`(number) `symbol` `decimals`(stepper 0..4) `headersText`(multiline) `bodyText`(multiline) `enabled`(toggle)。
+- **4 KiB 提交预算**（App 硬上限）：视图 `maxLength` 收紧为 `url 512`、`secret 768`、`headersText 256`、`bodyText 256`、`detailText 384`、`loginUrl 512`、`balancePath/currencyPath 120`、`name 24`、`username 100`、`tokenPath 120`、`tokenHeader 64`、`tokenPrefix 32`、`secretHeader 64`、`secretParam 64`、`symbol 8`；单测按最坏情况填满断言 `Buffer.byteLength(JSON.stringify(values)) < 4096`。core 校验仍按 §2 接受文件里更长的值。
+- 视图预算：整树 JSON ≤32 KiB、节点 ≤120、深度 ≤8、单个 `stack`/`row` 直接孩子 ≤32、`tabs` ≤8 项、`list` ≤50 行、`keyValue` ≤24 项、`actions` ≤4 个。
+- `select` 动作：`event.value.id` → 设为 `selectedId`，清 `test`/`confirmDelete`，`patch` 数据（或 emit）并 `refresh` 视图（结构可能变化）。
+- `refresh`：延后效果，`queryAll(enabled,{signal})` → 写 `results`、`saveResults`、更新数据、`toast '已更新 N 家'`；`signal.aborted` 立即返回 `{}`。
+- `test`：延后效果，`queryProvider(selected,{preview:true})`；**先把 `rawPreview` 里的 `provider.secret` / `username` 原文替换成 `'••••'` 再 patch**；`toast` 不带密钥/URL query。
+- `add` / `edit`：`formOpen=true` + 填 `data.form`（`edit` 用 `providerToDraft`，secret 留空、`secretSet=true`），`refresh`。`form-cancel`：`formOpen=false`，`refresh`。
+- `save`：从 `event.value.values` 按完整 bind 路径取字段（key 形如 `'data.form.name'`），以当前 form 草稿为底组装 draft，`validateProvider(draft,{existing})`；失败 `toast` 第一条中文错误；成功 upsert + `saveConfig` + `selectedId=id` + `formOpen=false` + `refresh` + `toast '已保存'`。
+- `preset`：`select` 的 `onChange`（`{bind,value}`，250ms 合并，只能返回 patch/refresh）或独立动作填模板字段；保留已填的 name/url 不覆盖（除非为空）。
+- `delete`：`confirm` 组件（`confirmDelete` 状态）→ `event.value.confirmed` 为 true 才删；删后清状态、`saveConfig`、`refresh`、`toast '已删除'`。
+- 状态条：`{ text, icon: 'wallet' }`，≤24 字，例如 `'余额 ¥1,234 · 3 家'`；`stripEnabled=false` 或没有结果 → `{ text: '' }`。
+- 文案：中文优先，`words(locale)` 给英文；`locale` 取 `caps.locale`（`startsWith('en')`）。
+- `apply(ctx, options = {})`：`options.home/fetchImpl/now` 透传（测试用），见 §7.1。
 
 ## 8. 安全与隐私
 
-- `secret` 只出现在存储文件、请求头、内存；**不得**写进 `Result.rawPreview` 之外的 UI 文本、**不得**写日志、**不得**发给模型。
-- 表单编辑时不回填真实密钥：`secret=''` + `secretSet=true`，placeholder「已保存，留空不改」。
-- 面板数据里只放打码：`maskSecret`。
-- `rawPreview` 只在用户点「测试」后由 `patch` 短暂出现在面板，≤ 8192 字符，不含请求头。
-- 不在插件加载时联网；只在打开面板/点按后取数。
-- 不读 `$DSH_HOME/sessions`、不读对话内容。
+- `secret` 只出现在存储文件、请求头、内存；**不写日志、不发模型、不放进视图/数据/效果文本**。
+- 面板与表单**不回显任何密钥**：`data.form.secret` 恒为空串；编辑时只给 `secretSet:true`（视图 placeholder「已保存，留空不改」）；不把 `maskSecret` 结果放进数据/视图（README 只写「不显示密钥」）。
+- `rawPreview`：只在用户点「测试」后出现，≤8192 字符；patch 前把 `provider.secret`、`username` 的原文替换成 `'••••'`（含 `Bearer <token>` 里的 token 子串）。
+- 错误文案/URL/toast 不得带 query 里的密钥；`authType=query` 的 URL 不进任何 UI 文本。
+- 不在插件加载时联网；只在打开面板/点按后取数；`strip` 不联网。
+- 不读 `$DSH_HOME/sessions`、不读对话内容、不读剪贴板。
+- 配置目录 0700、文件 0600、原子写（§2）。
 
 ## 9. 测试要求
 
