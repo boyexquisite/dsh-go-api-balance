@@ -22,6 +22,13 @@ dsh plugin --profile web add dsh-go-api-balance
 装在本机引擎（或 App 连的远程主机）上，App 的「插件」页签 / 全部功能里出现「API 余额」。
 需要主机能访问你配的余额接口。
 
+没上 npm 或国内下载慢时，也可以从 GitHub Release 下载同版本 tarball，或 clone 后本地安装：
+
+```sh
+git clone https://github.com/boyexquisite/dsh-go-api-balance.git
+dsh plugin --profile web add ./dsh-go-api-balance
+```
+
 ## 上手
 
 1. 打开「API 余额」面板 → 「添加服务」→ 先选服务类型。

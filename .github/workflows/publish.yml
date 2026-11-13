@@ -1,0 +1,116 @@
+name: publish
+
+# Releases are only ever published from a v* tag. There is deliberately no
+# workflow_dispatch: a manual run without a tag would publish to npm without a
+# tag or GitHub Release, breaking "tag == published source". To retry a failed
+# release, re-run this workflow from the tag (GitHub "Re-run jobs").
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  id-token: write
+
+# One publish per ref; never cancel a run that is already uploading.
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+          registry-url: 'https://registry.npmjs.org'
+      - name: Check tag matches package version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if [ "v$VERSION" != "${GITHUB_REF_NAME}" ]; then
+            echo "tag ${GITHUB_REF_NAME} does not match package.json version $VERSION"
+            exit 1
+          fi
+      - name: Check tag commit is on main
+        run: |
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor HEAD refs/remotes/origin/main; then
+            echo "tag commit is not on origin/main; releases must be cut from main" >&2
+            exit 1
+          fi
+      - name: Check CHANGELOG has a non-empty entry for this version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          NOTES=$(awk -v version="$VERSION" '
+            $0 == "## " version { capture = 1; next }
+            capture && /^## / { exit }
+            capture { print }
+          ' CHANGELOG.md)
+          if [ -z "$(printf '%s' "$NOTES" | tr -d '[:space:]')" ]; then
+            echo "CHANGELOG.md has no non-empty '## $VERSION' section; describe the release before tagging" >&2
+            exit 1
+          fi
+      - name: Test
+        run: npm test
+      - name: Check whether this version is already on npm
+        id: check
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if npm view "dsh-go-api-balance@$VERSION" version >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Publish to npm
+        if: steps.check.outputs.exists == 'false' && env.NPM_TOKEN != ''
+        run: npm publish --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: npm token missing (skipped)
+        if: steps.check.outputs.exists == 'false' && env.NPM_TOKEN == ''
+        run: |
+          echo "::notice title=npm publish skipped::NPM_TOKEN is not configured for this repository; the GitHub Release will still be created."
+      - name: Pack npm tarball
+        run: |
+          mkdir -p dist
+          npm pack --pack-destination dist
+      - name: Release notes and GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          {
+            echo "## dsh-go-api-balance ${GITHUB_REF_NAME}"
+            echo
+            echo "### 更新日志 / Changelog"
+            echo
+            awk -v version="$VERSION" '
+              $0 == "## " version { capture = 1; next }
+              capture && /^## / { exit }
+              capture { print }
+            ' CHANGELOG.md
+            echo
+            echo "### Install / 安装"
+            echo '```sh'
+            echo "dsh plugin --profile web add dsh-go-api-balance@$VERSION"
+            echo '```'
+            echo
+            if [ -n "${NPM_TOKEN:-}" ]; then
+              echo "Published to npm as \`dsh-go-api-balance@$VERSION\` (provenance signed)."
+            else
+              echo "npm publish is pending an NPM_TOKEN secret; this release carries the same npm tarball."
+            fi
+            echo "API balance, usage and subscription quotas for the dsh-go phone app. Credentials stay on the host; no telemetry."
+          } > release-notes.md
+          gh release create "${GITHUB_REF_NAME}" --title "${GITHUB_REF_NAME}" --notes-file release-notes.md dist/*.tgz \
+            || gh release edit "${GITHUB_REF_NAME}" --notes-file release-notes.md
+          gh release upload "${GITHUB_REF_NAME}" dist/*.tgz --clobber

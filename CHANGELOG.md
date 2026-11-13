@@ -1,0 +1,61 @@
+# Changelog / 更新日志
+
+## 0.4.0
+
+### 中文
+
+- 新增两个「编码 Agent 订阅」预设：**OpenCode Go**（官方 `/zen/go/v1/usage`，显示 5h/周/月剩余百分比与重置日期）和 **Command Code**（CLI 使用的 `/alpha/billing/credits`，显示本月剩余额度、5h/周剩余金额、额度与重置时间）。
+- 引擎支持数字常量表达式（`100 - usage.rolling.percent`、`cap - used`），`%` 符号后置显示（`48%`）。
+- 明细支持 `date` 类型：epoch 秒/毫秒或 ISO 字符串统一显示为 `YYYY-MM-DD`（订阅窗口的 `resetsAt`/`resetAt`）。
+- 文档补充订阅类平台的研究结论：OpenDesign 只有网页 Cookie + 两步请求，插件不做。
+
+### English
+
+- Two coding-agent subscription presets: **OpenCode Go** (official `/zen/go/v1/usage`; 5h/weekly/monthly remaining percentages and reset dates) and **Command Code** (the CLI's `/alpha/billing/credits`; monthly credits left, 5h/weekly money left, allowance and resets).
+- Expressions now accept numeric constants (`100 - usage.rolling.percent`, `cap - used`), and `%` is rendered as a suffix (`48%`).
+- Details support `kind: date`: epoch seconds/milliseconds or ISO strings are shown as `YYYY-MM-DD`.
+- Research notes document why OpenDesign is not supported (cookie-only, two-step workspace lookup).
+
+## 0.3.0
+
+### 中文
+
+- 安全加固：余额/登录/用量/附加信息地址强制 https（仅 localhost/127.0.0.1 等本机回环允许 http）。
+- 跳转防泄露：关闭自动跳转，手动只跟随同源（协议+域名+端口一致），最多 3 跳；跨域跳转直接停止。
+- 配置/缓存读到宽权限会自动收紧为 `0600`、目录 `0700`。
+- 自定义服务的「高级」页签新增「附加信息地址 / 字段」，任意 JSON 平台都能配订阅类第二次请求。
+- 新增 `SECURITY.md` 和 `test/security.test.js`：零依赖、无安装脚本、无遥测、清单不申请对话/剪贴板权限。
+
+### English
+
+- Security hardening: credential-bearing URLs must be https (loopback http only).
+- Redirect protection: manual same-origin redirects, max 3 hops; cross-origin redirects stop immediately.
+- Config/cache permissions are tightened to 0600 (dir 0700) on load.
+- Custom services gained optional extra-info URL/fields (second request) in the Advanced tab.
+- Added `SECURITY.md` and security baseline tests (no deps, no install scripts, no telemetry, no wants).
+
+## 0.2.0
+
+### 中文
+
+- 修正单位与数据：DeepSeek 按返回币种自动切换 ¥/$；小米 MiMo 余额改为「现金 + 赠送」（`total_available` 含授信）；Claude 花费补 `ending_at` + `limit=31`（默认只返回 7 天）；新增「one-api 中转（旧站）」预设（用量走 `/api/user/dashboard`）。
+- new-api 订阅改正：现行 new-api 的 `/api/user/self` 不含订阅字段，改为请求 `/api/subscription/self`，显示订阅剩余/总量/已用/到期，老配置自动迁移。
+- 引擎支持 `路径 + 路径` / `路径 - 路径` 与 `[]` 通配；卡片结果回来后自动重建视图。
+
+### English
+
+- Unit/data fixes: DeepSeek follows the returned currency; MiMo balance is cash + gift (credit excluded); Claude cost report uses `ending_at` + `limit=31`; new legacy one-api preset using `/api/user/dashboard`.
+- new-api subscriptions now come from `/api/subscription/self` (remaining/total/used/expiry); old configs migrate automatically.
+- Expressions and `[]` aggregation for paths; the view rebuilds after results arrive.
+
+## 0.1.0
+
+### 中文
+
+- 首个版本：DSH Go 手机 App 原生「API 余额」面板，一家一块卡片；支持 DeepSeek、new-api 中转、Kimi、小米 MiMo、OpenRouter、OpenAI 花费、Claude 花费与完全自定义。
+- 鉴权支持 Bearer / 自定义头 / Query / Cookie / Basic / 登录换 token；凭证只存主机 `0600` 文件，不进模型、不写日志。
+
+### English
+
+- First release: a native API-balance panel for the DSH Go phone app, one card per service; presets for DeepSeek, new-api relays, Kimi, Xiaomi MiMo, OpenRouter, OpenAI spend, Claude spend and fully custom services.
+- Auth: Bearer, custom header, query, cookie, Basic, or login-for-token; credentials stay in a 0600 file on the host, never sent to the model or logged.

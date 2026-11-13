@@ -17,6 +17,7 @@
     "README.md",
     "README.en.md",
     "SECURITY.md",
+    "CHANGELOG.md",
     "LICENSE"
   ],
   "keywords": [
@@ -42,7 +43,8 @@
     "dsh": ">=0.2.1-rc.2 <0.3.0-0"
   },
   "scripts": {
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "release": "node scripts/release.mjs"
   },
   "dsh": {
     "bundle": {
