@@ -3,7 +3,7 @@
 给 **DSH Go 手机 App** 的原生「API 余额」面板：把任意 HTTP 接口的余额聚到一个面板里。
 内置 6 种主流模板（DeepSeek、new-api / one-api 中转、OpenRouter、OpenAI / Claude 花费、OpenCode Go / Command Code、自定义），其余服务完全自定义——填地址、密钥和余额字段路径就行。
 
-- **面板**：一家一块卡片（名称 / 余额 / 两个大号用量指标 / 状态），卡片右侧小箭头展开菜单（编辑 / 删除 / 充值·赠送·订阅等明细）；不同站货币不同，**不做总余额相加**。
+- **面板**：一家一块卡片（名称 / 状态 / 余额 / 两个大号用量指标 / 最多两条明细），点状态行右侧箭头展开菜单（编辑 / 删除 / 全部明细）；不同站货币不同，**不做总余额相加**。
 - **用量**：每家服务可选配一个「用量」请求（中转站显示近 7 天 Token 数与请求数；OpenRouter 显示今日/本月花费）。
 - **订阅**：new-api 站点会额外请求 `/api/subscription/self`，卡片上显示「订阅剩余 / 到期」，菜单里还有订阅总量与已用额度；没有订阅或旧站不支持时静默隐藏。
 - **币种**：new-api / one-api 自动读站点 `/api/status`（`quota_per_unit`、自定义货币符号与汇率）；DeepSeek 按接口返回的 `currency`（CNY/USD）自动换符号。
@@ -49,11 +49,11 @@ dsh plugin --profile web add ./dsh-go-api-balance
 
 | 模板 | 显示内容 | 接口 | 凭证 |
 |---|---|---|---|
-| DeepSeek 官方 | 余额（自动 ¥/$）、充值余额、赠送余额 | `GET /user/balance` | API Key |
-| new-api / one-api 中转 | new-api：余额、已用额度、近 7 天 Token/请求、**订阅剩余/总量/已用/到期**；one-api 旧站：余额、已用额度、近 7 天 Token/请求 | `/api/user/self` + `/api/data/self`（旧站 `/api/user/dashboard`）+ `/api/subscription/self` + `/api/status` | 系统访问令牌 |
-| OpenRouter | 剩余额度（没设消费限额时显示 —）、今日花费、本月花费 | `/api/v1/key` | API Key |
-| OpenAI / Claude 花费 | 本月花费（Claude 为官方估算值，不是余额） | `/v1/organization/costs` / `/v1/organizations/cost_report` | 组织 Admin key / Admin key |
-| OpenCode Go / Command Code | 订阅额度：5 小时窗口剩余 %（OpenCode）、本周/本月剩余 %、重置日期；或 Command Code 本月剩余额度、5h/本周剩余金额 | `/zen/go/v1/usage` / `/alpha/billing/credits` | 各自 API Key |
+| DeepSeek 官方 | 余额（自动 ¥/$）、卡片明细：充值余额、赠送余额 | `GET /user/balance` | API Key |
+| new-api / one-api 中转 | new-api：余额、近 7 天 Token/请求、已用额度、累计请求、用户组、**订阅剩余/总量/已用/到期**；one-api 旧站：余额、近 7 天 Token/请求、已用额度、累计请求、用户组 | `/api/user/self` + `/api/data/self`（旧站 `/api/user/dashboard`）+ `/api/subscription/self` + `/api/status` | 系统访问令牌 |
+| OpenRouter | 剩余额度（没设消费限额时显示 —）、今日/本月花费、本周花费、累计花费、消费限额与重置日期 | `/api/v1/key` | API Key |
+| OpenAI / Claude 花费 | 本月花费（Claude 为官方估算值，不是余额）+ **本月输入/输出 Token、请求数**（Claude 另含缓存读/写 Token） | `/v1/organization/costs` + `/v1/organization/usage/completions` / `/v1/organizations/cost_report` + `/v1/organizations/usage_report/messages` | 组织 Admin key / Admin key |
+| OpenCode Go / Command Code | OpenCode：5 小时窗口剩余 %、本周/本月剩余 %、各窗口重置日期；Command Code：本月剩余额度、5h/本周剩余金额与已用、重置时间 | `/zen/go/v1/usage` / `/alpha/billing/credits` | 各自 API Key |
 
 ### 用「自定义」能接、但没内置的
 

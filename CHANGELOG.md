@@ -1,5 +1,25 @@
 # Changelog / 更新日志
 
+## 0.6.0
+
+### 中文
+
+- 每家服务在卡片上多显示最多两条关键明细（原来只有订阅类附加信息），完整列表仍在状态行菜单里。
+- **new-api / one-api 中转**：额度接口里多取「累计请求」「用户组」。
+- **OpenRouter**：多显示「本周花费」「累计花费」「消费限额」「限额重置」。
+- **OpenAI / Claude 花费**：用同一个 Admin key 再请求一次组织用量，多显示本月输入/输出 Token、请求数（Claude 另含缓存读/写 Token）。
+- **Command Code**：多显示 5 小时 / 本周已用金额。
+- 老配置在加载时自动补齐这些新字段（只补缺，不覆盖用户已有明细）；所有新增信息都只用已有的 API key / 令牌获取，不碰 Cookie 或网页登录态。
+
+### English
+
+- Cards now show up to two key detail rows (previously only subscription extras); the full list stays in the status-row menu.
+- **new-api / one-api relay**: also read total requests and the user group from the quota response.
+- **OpenRouter**: also show weekly spend, total spend, key limit and limit reset.
+- **OpenAI / Claude spend**: reuse the same Admin key for one more organization usage request, adding monthly input/output tokens and request count (Claude also cache read/write tokens).
+- **Command Code**: also show 5h and weekly money used.
+- Existing saved services are upgraded on load (missing fields only, nothing overwritten); every new field comes from the same API key/token, never from cookies or web sessions.
+
 ## 0.5.0
 
 ### 中文

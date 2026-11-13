@@ -1670,22 +1670,41 @@ test('OpenAI 花费全链路：占位符替换 + 嵌套数组求和', async () =
     ...presetDraft('openai-cost'),
     secret: 'sk-admin-test',
   }).provider
-  const impl = recordingFetch(() => responseOf(200, {
-    data: [
-      { results: [{ amount: { value: 0.5 } }, { amount: { value: 1.25 } }] },
-      { results: [{ amount: { value: 2 } }] },
-    ],
-  }))
+  const impl = recordingFetch((url) => {
+    if (url.includes('/organization/usage/completions')) {
+      return responseOf(200, {
+        data: [
+          { results: [{ input_tokens: 1000, output_tokens: 200, num_model_requests: 3 }] },
+          { results: [{ input_tokens: 500, output_tokens: 100, num_model_requests: 2 }] },
+        ],
+      })
+    }
+    return responseOf(200, {
+      data: [
+        { results: [{ amount: { value: 0.5 } }, { amount: { value: 1.25 } }] },
+        { results: [{ amount: { value: 2 } }] },
+      ],
+    })
+  })
   const runner = createRunner({ fetchImpl: impl, now: () => at })
   const result = await runner.queryProvider(provider)
   assert.equal(result.ok, true)
   assert.equal(result.balance, null)
   assert.deepEqual(result.usage, [{ label: '本月花费', value: 3.75 }])
+  // 同一个 Admin key 追加的 token 用量
+  assert.deepEqual(result.extra, [
+    { label: '本月输入 Token', value: 1500, kind: 'count' },
+    { label: '本月输出 Token', value: 300, kind: 'count' },
+    { label: '本月请求数', value: 5, kind: 'count' },
+  ])
   const parsed = new URL(impl.calls[0].url)
   assert.equal(parsed.searchParams.get('start_time'), String(Math.floor(monthStart / 1000)))
   assert.equal(parsed.searchParams.get('end_time'), String(Math.floor(at / 1000)))
   assert.equal(parsed.searchParams.get('bucket_width'), '1d')
   assert.equal(impl.calls[0].init.headers.Authorization, 'Bearer sk-admin-test')
+  const usageUrl = new URL(impl.calls.find((call) => call.url.includes('/organization/usage/completions')).url)
+  assert.equal(usageUrl.searchParams.get('start_time'), String(Math.floor(monthStart / 1000)))
+  assert.equal(usageUrl.searchParams.get('limit'), '31')
 })
 
 test('Claude 花费全链路：x-api-key + anthropic-version + ISO 月份 + 分为单位', async () => {
@@ -1695,20 +1714,45 @@ test('Claude 花费全链路：x-api-key + anthropic-version + ISO 月份 + 分�
     ...presetDraft('anthropic-cost'),
     secret: 'sk-ant-test',
   }).provider
-  const impl = recordingFetch(() => responseOf(200, {
-    data: [{ results: [{ amount: 100 }, { amount: 50 }] }],
-  }))
+  const impl = recordingFetch((url) => {
+    if (url.includes('/usage_report/messages')) {
+      return responseOf(200, {
+        data: [
+          {
+            results: [{
+              input_tokens: 2000,
+              output_tokens: 400,
+              cache_read_input_tokens: 8000,
+              cache_creation: { ephemeral_5m_input_tokens: 300 },
+            }],
+          },
+        ],
+      })
+    }
+    return responseOf(200, {
+      data: [{ results: [{ amount: 100 }, { amount: 50 }] }],
+    })
+  })
   const runner = createRunner({ fetchImpl: impl, now: () => at })
   const result = await runner.queryProvider(provider)
   assert.equal(result.ok, true)
   assert.equal(result.balance, null)
   assert.deepEqual(result.usage, [{ label: '本月花费', value: 150 }])
   assert.equal(provider.divisor, 100)
+  assert.deepEqual(result.extra, [
+    { label: '本月输入 Token', value: 2000, kind: 'count' },
+    { label: '本月输出 Token', value: 400, kind: 'count' },
+    { label: '缓存读 Token', value: 8000, kind: 'count' },
+    { label: '缓存写 Token', value: 300, kind: 'count' },
+  ])
   const parsed = new URL(impl.calls[0].url)
   assert.equal(parsed.searchParams.get('starting_at'), isoOf(monthStart))
   assert.equal(impl.calls[0].init.headers['x-api-key'], 'sk-ant-test')
   assert.equal(impl.calls[0].init.headers['anthropic-version'], '2023-06-01')
   assert.equal(impl.calls[0].init.headers.Authorization, undefined)
+  const usageUrl = new URL(impl.calls.find((call) => call.url.includes('/usage_report/messages')).url)
+  assert.equal(usageUrl.searchParams.get('starting_at'), isoOf(monthStart))
+  assert.equal(usageUrl.searchParams.get('limit'), '31')
 })
 
 // ---------- v2.0 表达式 / 附加信息 ----------
@@ -1987,6 +2031,11 @@ test('commandcode：月度剩余额度 + 5h/周剩余金额', async () => {
     { label: '5小时剩余', value: 14 - 0.59 },
     { label: '本周剩余', value: 35 - 0.59 },
   ])
-  assert.deepEqual(result.details[0], { label: '本月额度', value: 100 })
-  assert.equal(result.details[1].kind, 'date')
+  assert.deepEqual(result.details.slice(0, 3), [
+    { label: '本月额度', value: 100 },
+    { label: '5小时已用', value: 0.59 },
+    { label: '本周已用', value: 0.59 },
+  ])
+  assert.equal(result.details[3].kind, 'date')
+  assert.equal(result.details[4].kind, 'date')
 })

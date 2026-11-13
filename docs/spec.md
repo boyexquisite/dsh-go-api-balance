@@ -659,3 +659,18 @@ export function presetOptions() // → [{ label, value }] 给 UI 选项（含 cu
 - `PRESETS` 只保留这 5 组；Kimi / 小米 MiMo 不再列出，但 `presetDraft`、表单分支、保存分支全部保留，老配置照常编辑。
 - 保存逻辑：`base.preset` 来自表单 select 值（`state.form.preset` 兜底），落到具体 preset；中转组在 autoUnit 开启且表单里切换过站点类型时，货币符号用目标模板默认值（one-api → `$`），避免沿用 new-api 草稿的 `¥`。
 - 单测：列表 6 项、合并表单 select 选项、保存按所选平台落 preset（含 one-api dashboard 用量与 `$` 符号）；329 项全绿，check 0 error。
+
+## 26. v0.6.0：用 key/令牌能拿到的信息尽量都显示
+
+> 哥哥 2026-11-13：每项显示更全面，且只在用 key / 令牌的前提下。
+
+- 卡片新增一行「最多 2 条明细」：先放附加请求（订阅等 `extra`），再补 `details`；完整列表仍在菜单。
+- 预设补字段：
+  - `newapi` / `oneapi`：`details` 增「累计请求」（`data.request_count`，count）、「用户组」（`data.group`，text）。
+  - `openrouter`：`details` 增「本周花费」`usage_weekly`、「累计花费」`usage`、「消费限额」`limit`、「限额重置」`limit_reset`（date）。
+  - `openai-cost`：`extraUrl` 指向 `/v1/organization/usage/completions`（`{month_start}`/`{now}`、`limit=31`），`extraFields` 为输入/输出 Token、请求数（count）。
+  - `anthropic-cost`：`extraUrl` 指向 `/v1/organizations/usage_report/messages`（ISO 占位符、`limit=31`），`extraFields` 为输入/输出、缓存读/缓存写 Token（count）。
+  - `commandcode`：`details` 增「5小时已用」「本周已用」（`windowLimits.*.used`）。
+- `upgradeProvider` 增加迁移：老配置按预设补齐缺失的明细；OpenAI/Claude 花费在没配附加请求时自动补 token 用量请求。只补缺、不覆盖已有项。
+- 全部数据仍来自同一 API key / 令牌，不引入 Cookie、网页登录态或新的凭证类型。
+- 测试：330 项全绿，check 0 error（含 OpenAI/Claude 附加 token 请求、老配置迁移、卡片明细行）。

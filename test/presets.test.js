@@ -65,7 +65,11 @@ test('newapi 模板空 base 留空地址', () => {
   assert.equal(draft.multiplier, 1)
   assert.equal(draft.symbol, '¥')
   assert.equal(draft.decimals, 2)
-  assert.deepEqual(draft.detailPaths, [{ label: '已用额度', path: 'data.used_quota' }])
+  assert.deepEqual(draft.detailPaths, [
+    { label: '已用额度', path: 'data.used_quota' },
+    { label: '累计请求', path: 'data.request_count', kind: 'count' },
+    { label: '用户组', path: 'data.group', kind: 'text' },
+  ])
   assert.equal(draft.extraUrl, '')
   assert.deepEqual(draft.extraFields, [])
 })
@@ -303,7 +307,7 @@ test('kimi / mimo 草稿每次返回新对象', () => {
 
 test('newapi 预设订阅走独立接口 /api/subscription/self（v2.0 修正）', () => {
   const draft = presetDraft('newapi', { base: 'https://relay.example.com' })
-  assert.deepEqual(draft.detailPaths, [{ label: '已用额度', path: 'data.used_quota' }])
+  assert.deepEqual(draft.detailPaths.map((row) => row.label), ['已用额度', '累计请求', '用户组'])
   assert.equal(draft.extraUrl, 'https://relay.example.com/api/subscription/self')
   assert.deepEqual(draft.extraFields, [
     {
@@ -322,7 +326,7 @@ test('oneapi 预设：旧站余额 + /api/user/dashboard 近 7 天用量', () =>
   assert.equal(draft.name, 'one-api 中转')
   assert.equal(draft.url, 'https://old.example.com/api/user/self')
   assert.equal(draft.balancePath, 'data.quota')
-  assert.deepEqual(draft.detailPaths, [{ label: '已用额度', path: 'data.used_quota' }])
+  assert.deepEqual(draft.detailPaths.map((row) => row.label), ['已用额度', '累计请求', '用户组'])
   assert.equal(draft.usageUrl, 'https://old.example.com/api/user/dashboard')
   assert.equal(draft.usageArrayPath, 'data')
   assert.deepEqual(draft.usageFields, [
@@ -352,6 +356,8 @@ test('openrouter 预设字段严格符合 spec', () => {
     { label: '本月花费', path: 'data.usage_monthly' },
   ])
   assert.equal(draft.usageScale, true)
+  assert.deepEqual(draft.detailPaths.map((row) => row.label), ['本周花费', '累计花费', '消费限额', '限额重置'])
+  assert.equal(draft.detailPaths[3].kind, 'date')
   assert.equal(draft.divisor, 1)
   assert.equal(draft.multiplier, 1)
   assert.equal(draft.symbol, '$')
@@ -454,8 +460,9 @@ test('commandcode 预设：月度剩余额度 + 5h/周剩余金额', () => {
   assert.equal(draft.usageScale, true)
   assert.equal(draft.symbol, '$')
   assert.equal(draft.decimals, 2)
-  assert.deepEqual(draft.detailPaths.map((row) => row.label), ['本月额度', '5小时重置', '本周重置'])
-  assert.equal(draft.detailPaths[1].kind, 'date')
+  assert.deepEqual(draft.detailPaths.map((row) => row.label), ['本月额度', '5小时已用', '本周已用', '5小时重置', '本周重置'])
+  assert.equal(draft.detailPaths[3].kind, 'date')
+  assert.equal(draft.detailPaths[4].kind, 'date')
   const result = validateProvider({ ...draft, secret: 'user-test' })
   assert.equal(result.ok, true)
   assert.equal(result.provider.usageFields[0].path, draft.usageFields[0].path)

@@ -5,9 +5,9 @@ endpoint into one panel. Six mainstream templates (DeepSeek, new-api / one-api r
 OpenAI / Claude spend, OpenCode Go / Command Code, custom); everything else is a custom
 "service": URL + key/token + JSON field paths.
 
-- **Panel**: one card per service (name / balance / two large usage metrics / status). The chevron
-  opens a menu with edit / delete and details (top-up, gift, subscription). No grand total, since
-  sites use different currencies.
+- **Panel**: one card per service (name / status / balance / two large usage metrics / up to two
+  detail rows). The status row's chevron opens a menu with edit / delete and all details. No grand
+  total, since sites use different currencies.
 - **Usage**: an optional second request per service (relays show the last 7 days' tokens and
   requests; OpenRouter shows today's and this month's spend).
 - **Subscriptions**: for new-api sites the plugin also reads `/api/subscription/self` and shows the
@@ -52,11 +52,11 @@ supported: `a + b`, `a - b` (e.g. cash + gift, subscription total - used).
 
 | Template | Shows | Endpoint | Credential |
 |---|---|---|---|
-| DeepSeek | balance (auto ¥/$), top-up, gift | `GET /user/balance` | API key |
-| new-api / one-api relay | new-api: balance, used quota, 7-day tokens/requests, subscription remaining/total/used/expiry; older one-api: balance, used quota, 7-day tokens/requests | `/api/user/self`, `/api/data/self` (legacy `/api/user/dashboard`), `/api/subscription/self`, `/api/status` | access token |
-| OpenRouter | remaining limit (— when no key limit), today and month spend | `/api/v1/key` | API key |
-| OpenAI / Claude spend | month spend only (Claude is an official estimate, not a balance) | `/v1/organization/costs` / `/v1/organizations/cost_report` | org Admin key / Admin key |
-| OpenCode Go / Command Code | subscription quota: 5h/window remaining % (OpenCode), weekly/monthly remaining %, resets; or Command Code monthly credits left and 5h/weekly money left | `/zen/go/v1/usage` / `/alpha/billing/credits` | respective API key |
+| DeepSeek | balance (auto ¥/$), card details: top-up and gift balance | `GET /user/balance` | API key |
+| new-api / one-api relay | new-api: balance, 7-day tokens/requests, used quota, total requests, group, subscription remaining/total/used/expiry; older one-api: balance, 7-day tokens/requests, used quota, total requests, group | `/api/user/self`, `/api/data/self` (legacy `/api/user/dashboard`), `/api/subscription/self`, `/api/status` | access token |
+| OpenRouter | remaining limit (— when no key limit), today/month spend, weekly spend, total spend, key limit and reset date | `/api/v1/key` | API key |
+| OpenAI / Claude spend | month spend (Claude is an official estimate, not a balance) plus **monthly input/output tokens and request count** (Claude also cache read/write tokens) | `/v1/organization/costs` + `/v1/organization/usage/completions` / `/v1/organizations/cost_report` + `/v1/organizations/usage_report/messages` | org Admin key / Admin key |
+| OpenCode Go / Command Code | OpenCode: 5h window remaining %, weekly/monthly remaining %, resets; Command Code: monthly credits left, 5h/weekly money left and used, reset times | `/zen/go/v1/usage` / `/alpha/billing/credits` | respective API key |
 
 Custom-only (no built-in template, endpoints not officially documented / unstable): Zhipu GLM,
 SiliconFlow (reported retired 2026-08), ModelScope magicubes, MiniMax M Plan, Ace Data.

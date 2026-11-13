@@ -870,10 +870,12 @@ test('卡片内容：名称/余额/用量/状态；失败 callout；不再有 ke
   assert.ok(!json.includes('服务详情'))
   const card = view.children[0]
   const texts = nodesOfType(card, 'text')
-  assert.equal(texts.length, 2, '名称 / 余额（状态在 list 行里）')
+  assert.equal(texts.length, 3, '名称 / 余额 / 明细行（状态在 list 行里）')
   assert.equal(texts[0].text, 'DeepSeek')
   assert.equal(texts[1].text.$, 'data.cards[0].balance')
   assert.equal(texts[1].style.weight, 'bold')
+  assert.ok(texts[2].text.includes('充值余额'), '卡片上显示明细行')
+  assert.equal(texts[2].style.size, 'caption')
   const statusRow = nodesOfType(card, 'list')[0].items[0]
   assert.equal(statusRow.title.$, 'data.cards[0].status')
   const metrics = nodesOfType(card, 'metric')
@@ -2341,6 +2343,53 @@ test('ensureReady 迁移旧 new-api 配置：自动补 /api/subscription/self', 
   assert.equal(provider.extraUrl, 'https://old.example.com/api/subscription/self')
   assert.equal(provider.extraFields.length, 4)
   assert.equal(provider.extraFields[0].label, '订阅剩余')
+})
+
+test('ensureReady 迁移：老配置补新明细 / OpenAI·Claude 花费补 token 用量请求', async (t) => {
+  const home = await tempHome(t)
+  const dir = path.dirname(configPath(home))
+  await fs.mkdir(dir, { recursive: true })
+  await fs.writeFile(configPath(home), JSON.stringify({
+    v: 1,
+    providers: [
+      {
+        id: 'p_oldrelay',
+        name: '旧中转',
+        preset: 'newapi',
+        url: 'https://old.example.com/api/user/self',
+        method: 'GET',
+        authType: 'bearer',
+        secret: 'token-123456',
+        balancePath: 'data.quota',
+        detailPaths: [{ label: '已用额度', path: 'data.used_quota' }],
+        divisor: 500000,
+        symbol: '¥',
+        decimals: 2,
+        enabled: true,
+      },
+      {
+        id: 'p_oldcost',
+        name: '旧花费',
+        preset: 'openai-cost',
+        url: 'https://api.openai.com/v1/organization/costs',
+        method: 'GET',
+        authType: 'bearer',
+        secret: 'sk-admin-old',
+        balancePath: '',
+        enabled: true,
+      },
+    ],
+    settings: {},
+  }), 'utf8')
+  const { ctx } = fakeHost()
+  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, {}) })
+  await store.ensureReady()
+  const [relay, cost] = store.state.config.providers
+  assert.deepEqual(relay.detailPaths.map((row) => row.label), ['已用额度', '累计请求', '用户组'])
+  assert.equal(relay.detailPaths[1].kind, 'count')
+  assert.equal(cost.extraUrl.includes('/organization/usage/completions'), true)
+  assert.equal(cost.extraFields.length, 3)
+  assert.equal(cost.extraFields[0].label, '本月输入 Token')
 })
 
 test('actions: choose-template oneapi 保存后是 one-api 配置', async (t) => {
