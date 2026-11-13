@@ -1,14 +1,14 @@
 # dsh-go-api-balance
 
 给 **DSH Go 手机 App** 的原生「API 余额」面板：把任意 HTTP 接口的余额聚到一个面板里。
-内置 10 种服务模板（DeepSeek、new-api、one-api、Kimi、小米 MiMo、OpenRouter、OpenAI 花费、Claude 花费、OpenCode Go、Command Code），其余服务完全自定义——填地址、密钥和余额字段路径就行。
+内置 6 种主流模板（DeepSeek、new-api / one-api 中转、OpenRouter、OpenAI / Claude 花费、OpenCode Go / Command Code、自定义），其余服务完全自定义——填地址、密钥和余额字段路径就行。
 
 - **面板**：一家一块卡片（名称 / 余额 / 两个大号用量指标 / 状态），卡片右侧小箭头展开菜单（编辑 / 删除 / 充值·赠送·订阅等明细）；不同站货币不同，**不做总余额相加**。
 - **用量**：每家服务可选配一个「用量」请求（中转站显示近 7 天 Token 数与请求数；OpenRouter 显示今日/本月花费）。
 - **订阅**：new-api 站点会额外请求 `/api/subscription/self`，卡片上显示「订阅剩余 / 到期」，菜单里还有订阅总量与已用额度；没有订阅或旧站不支持时静默隐藏。
 - **币种**：new-api / one-api 自动读站点 `/api/status`（`quota_per_unit`、自定义货币符号与汇率）；DeepSeek 按接口返回的 `currency`（CNY/USD）自动换符号。
 - **鉴权**：Bearer 令牌、自定义请求头、Query 参数、Cookie、Basic、账号密码登录换 token。
-- **模板**：内置 8 种，见下表；字段路径支持 `data.quota`、`balance_infos[0].total_balance`，也支持 `a + b`、`a - b` 这类简单算式。
+- **模板**：内置 6 种，见下表；字段路径支持 `data.quota`、`balance_infos[0].total_balance`，也支持 `a + b`、`a - b` 这类简单算式。
 - **凭证只在主机**：密钥写本机 `$DSH_HOME/cache/dsh-go-api-balance/config.json`（0600），只用于请求你配的余额接口；不进模型上下文、不写日志、不上传；面板里不回显密钥，只提示「已保存」。
 - **只走 https**：余额/登录/用量/附加地址强制 https（本机 localhost 例外）；跨域跳转会被拦截，防止密钥被跳到第三方。详见 [SECURITY.md](SECURITY.md)。
 - 零运行时依赖，运行时不读对话内容、不调模型。
@@ -31,17 +31,17 @@ dsh plugin --profile web add ./dsh-go-api-balance
 
 ## 上手
 
-1. 打开「API 余额」面板 → 「添加服务」→ 先选服务类型。
+1. 打开「API 余额」面板 → 「添加服务」→ 先选服务类型（只列 6 种常用的）。
 2. 按类型填关键项：
    - **DeepSeek 官方**：只要 API Key（名称/接口/字段全自动）。
-   - **new-api 中转**：站点地址（`https://sta1n.ai` 或接入地址 `https://sta1n.ai/v1` 都行，`/v1` 会自动去掉）+ 系统访问令牌。余额、近 7 天用量、订阅都自动读；货币自动识别，无需手填。
-   - **one-api 中转（旧站）**：同上填站点地址 + 访问令牌；用量走旧站的 `/api/user/dashboard`（固定近 7 天）。
-   - **Kimi / Moonshot**、**小米 MiMo**：只填 API Key（Kimi 可选国内/海外）。
-   - **OpenRouter**：只填 API Key；**OpenAI 花费**、**Claude 花费**：填组织 Admin key，只显示本月花费（不是余额）。
+   - **new-api / one-api 中转**：先选站点类型（new-api 或 one-api 旧站），再填站点地址（`https://sta1n.ai` 或接入地址 `https://sta1n.ai/v1` 都行，`/v1` 会自动去掉）+ 系统访问令牌。余额、近 7 天用量、订阅都自动读；货币自动识别，无需手填。
+   - **OpenRouter**：只填 API Key，显示余额和今日/本月花费。
+   - **OpenAI / Claude 花费**：先选平台，再填组织 Admin key，只显示本月花费（不是余额）。
+   - **OpenCode Go / Command Code**：先选平台，只填 API Key，显示订阅额度/剩余。
    - **自定义**：常用页签填地址/鉴权/密钥/余额路径，其余路径收在「高级」页签。
 3. 保存后自动刷新，不用再点「刷新」；以后打开面板也会自动更新。
 
-字段路径写法：`data.quota`、`balance_infos[0].total_balance`、`a[1].b`；简单算式也可以：`balance_infos[0].cash_balance + balance_infos[0].gift_balance`（MiMo 余额）、`data.subscriptions[].subscription.amount_total - data.subscriptions[].subscription.amount_used`（订阅剩余）。
+字段路径写法：`data.quota`、`balance_infos[0].total_balance`、`a[1].b`；简单算式也可以：`balance_infos[0].cash_balance + balance_infos[0].gift_balance`、`data.subscriptions[].subscription.amount_total - data.subscriptions[].subscription.amount_used`（订阅剩余）。
 
 ## 支持范围
 
@@ -50,15 +50,10 @@ dsh plugin --profile web add ./dsh-go-api-balance
 | 模板 | 显示内容 | 接口 | 凭证 |
 |---|---|---|---|
 | DeepSeek 官方 | 余额（自动 ¥/$）、充值余额、赠送余额 | `GET /user/balance` | API Key |
-| new-api 中转 | 余额、已用额度、近 7 天 Token/请求、**订阅剩余/总量/已用/到期**（有订阅时） | `/api/user/self` + `/api/data/self` + `/api/subscription/self` + `/api/status` | 系统访问令牌 |
-| one-api 中转（旧站） | 余额、已用额度、近 7 天 Token/请求 | `/api/user/self` + `/api/user/dashboard` + `/api/status` | 系统访问令牌 |
-| Kimi / Moonshot | 余额、代金券、现金（国内 ¥ / 海外 $） | `/v1/users/me/balance` | API Key |
-| 小米 MiMo | 余额（现金+赠送）、现金/赠送/冻结/授信可用 | `/v1/platform/balance` | API Key |
+| new-api / one-api 中转 | new-api：余额、已用额度、近 7 天 Token/请求、**订阅剩余/总量/已用/到期**；one-api 旧站：余额、已用额度、近 7 天 Token/请求 | `/api/user/self` + `/api/data/self`（旧站 `/api/user/dashboard`）+ `/api/subscription/self` + `/api/status` | 系统访问令牌 |
 | OpenRouter | 剩余额度（没设消费限额时显示 —）、今日花费、本月花费 | `/api/v1/key` | API Key |
-| OpenAI 花费 | 本月花费（不是余额） | `/v1/organization/costs` | 组织 Admin key |
-| Claude 花费 | 本月花费（官方估算值，不是余额） | `/v1/organizations/cost_report` | Admin key |
-| OpenCode Go（订阅） | 5 小时窗口剩余 %（卡片）、本周/本月剩余 %、各窗口重置日期 | `/zen/go/v1/usage` | OpenCode Go API Key |
-| Command Code（订阅） | 本月剩余额度、5h/本周剩余金额、本月额度与重置时间 | `/alpha/billing/credits` | Command Code Provider API Key |
+| OpenAI / Claude 花费 | 本月花费（Claude 为官方估算值，不是余额） | `/v1/organization/costs` / `/v1/organizations/cost_report` | 组织 Admin key / Admin key |
+| OpenCode Go / Command Code | 订阅额度：5 小时窗口剩余 %（OpenCode）、本周/本月剩余 %、重置日期；或 Command Code 本月剩余额度、5h/本周剩余金额 | `/zen/go/v1/usage` / `/alpha/billing/credits` | 各自 API Key |
 
 ### 用「自定义」能接、但没内置的
 

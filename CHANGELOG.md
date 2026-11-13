@@ -1,5 +1,19 @@
 # Changelog / 更新日志
 
+## 0.5.0
+
+### 中文
+
+- 「添加服务」精简成 **6 种主流模板**：DeepSeek 官方、new-api / one-api 中转、OpenRouter、OpenAI / Claude 花费、OpenCode Go / Command Code、自定义；Kimi、小米 MiMo 等旧模板不再出现在列表里（老配置仍能正常显示和编辑保存）。
+- 合并组在表单里多一个「平台 / 站点类型」下拉：中转组选 new-api 或 one-api 旧站，花费组选 OpenAI 或 Claude，订阅组选 OpenCode Go 或 Command Code；保存按所选平台写入对应配置。
+- 修中转组切换站点类型时货币符号沿用另一个模板默认值的问题（one-api 旧站现在会正确回落到 `$`）。
+
+### English
+
+- The add-service list is now **six mainstream templates**: DeepSeek, new-api / one-api relay, OpenRouter, OpenAI / Claude spend, OpenCode Go / Command Code, and custom. Kimi and Xiaomi MiMo are gone from the list (existing saved services still display and edit fine).
+- Merged templates add a "platform / site type" dropdown: new-api or legacy one-api, OpenAI or Claude, OpenCode Go or Command Code; saving writes the selected platform.
+- Fixed the relay group keeping the other template's currency symbol when switching site types (legacy one-api now correctly falls back to `$`).
+
 ## 0.4.3
 
 ### 中文

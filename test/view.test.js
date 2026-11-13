@@ -345,15 +345,17 @@ test('words: 中英文案 key 齐全、值非空、长度在 UI 上限内', () =
     }
     assert.ok([...dictionary.chooseTemplate].length <= 24)
     assert.ok([...dictionary.deepseekCaption].length <= 200)
-    assert.ok([...dictionary.newapiCaption].length <= 200)
+    assert.ok([...dictionary.relayCaption].length <= 200)
+    assert.ok([...dictionary.costCaption].length <= 200)
+    assert.ok([...dictionary.codingCaption].length <= 200)
     for (const [key, label] of Object.entries(dictionary.fields)) {
       assert.ok(label.trim() !== '', `${locale}.fields.${key} 标签为空`)
       assert.ok([...label].length <= 200, `${locale}.fields.${key} 标签过长`)
     }
     assert.deepEqual(dictionary.presets.map((item) => item.value).sort(), [
-      'anthropic-cost', 'commandcode', 'custom', 'deepseek', 'kimi', 'mimo', 'newapi', 'oneapi', 'openai-cost', 'opencode-go', 'openrouter',
+      'custom', 'deepseek', 'newapi', 'openai-cost', 'opencode-go', 'openrouter',
     ])
-    for (const key of ['templateKimiSub', 'templateMimoSub', 'templateOpenrouterSub', 'templateOpenaiCostSub', 'templateAnthropicCostSub']) {
+    for (const key of ['templateDeepseekSub', 'templateRelaySub', 'templateOpenrouterSub', 'templateCostSub', 'templateCodingSub', 'templateCustomSub']) {
       assert.ok(dictionary[key].trim() !== '', key)
     }
     assert.equal(Object.keys(dictionary.authNames).length, 6)
@@ -398,38 +400,28 @@ test('panelView: v2 根节点、无 minApp、自定义表单两页签与必填�
   assert.ok(JSON.stringify(view).includes('{7d}'), '用量地址 placeholder 带 {7d} 说明')
 })
 
-test('panelView: 添加向导出十一种服务类型（list 行内 choose-template，取消可收起）', () => {
+test('panelView: 添加向导只列六种主流服务类型（list 行内 choose-template，取消可收起）', () => {
   const view = panelView(freshState({ pickTemplate: true }), FULL_CAPS)
   assert.deepEqual(childrenTypes(view), ['emptyState', 'text', 'list', 'actions', 'actions'])
   const cancelRow = view.children.filter((child) => child.type === 'actions')[0]
   assert.deepEqual(cancelRow.items.map((item) => item.action), ['form-cancel'], '类型列表下要有取消出口')
   assert.deepEqual(cancelRow.items.map((item) => item.label), [words('zh').cancel])
   const list = view.children.find((child) => child.type === 'list')
-  assert.equal(list.items.length, 11)
+  assert.equal(list.items.length, 6)
   assert.deepEqual(list.items.map((item) => item.action), [
     { id: 'choose-template', args: { preset: 'deepseek' } },
     { id: 'choose-template', args: { preset: 'newapi' } },
-    { id: 'choose-template', args: { preset: 'oneapi' } },
-    { id: 'choose-template', args: { preset: 'kimi' } },
-    { id: 'choose-template', args: { preset: 'mimo' } },
     { id: 'choose-template', args: { preset: 'openrouter' } },
     { id: 'choose-template', args: { preset: 'openai-cost' } },
-    { id: 'choose-template', args: { preset: 'anthropic-cost' } },
     { id: 'choose-template', args: { preset: 'opencode-go' } },
-    { id: 'choose-template', args: { preset: 'commandcode' } },
     { id: 'choose-template', args: { preset: 'custom' } },
   ])
   assert.deepEqual(list.items.map((item) => item.subtitle), [
     words('zh').templateDeepseekSub,
-    words('zh').templateNewapiSub,
-    words('zh').templateOneapiSub,
-    words('zh').templateKimiSub,
-    words('zh').templateMimoSub,
+    words('zh').templateRelaySub,
     words('zh').templateOpenrouterSub,
-    words('zh').templateOpenaiCostSub,
-    words('zh').templateAnthropicCostSub,
-    words('zh').templateOpencodeSub,
-    words('zh').templateCommandcodeSub,
+    words('zh').templateCostSub,
+    words('zh').templateCodingSub,
     words('zh').templateCustomSub,
   ])
   assert.deepEqual(list.items.map((item) => item.title), words('zh').presets.map((item) => item.label))
@@ -455,10 +447,15 @@ test('panelView: 模板表单只显示关键字段（deepseek 2 项 / newapi aut
   const newapiInputs = collectInputs(newapiView)
   assert.deepEqual(newapiInputs.map((input) => input.bind), [
     'data.form.name',
+    'data.form.preset',
     'data.form.siteBase',
     'data.form.secret',
     'data.form.autoUnit',
   ])
+  const relayKindInput = newapiInputs.find((input) => input.bind === 'data.form.preset')
+  assert.equal(relayKindInput.type, 'select')
+  assert.deepEqual(relayKindInput.options.map((option) => option.value), ['newapi', 'oneapi'])
+  assert.equal(relayKindInput.label, words('zh').relayKindLabel)
   const autoUnitInput = newapiInputs.find((input) => input.bind === 'data.form.autoUnit')
   assert.equal(autoUnitInput.type, 'toggle')
   assert.equal(autoUnitInput.label, words('zh').fields.autoUnit)
@@ -2096,14 +2093,14 @@ test('actions: save mimo 固定 url/字段，名称为空用默认名', async (t
 
 test('panelView: OpenRouter / OpenAI 花费 / Claude 花费简表只有名称+密钥+caption', () => {
   const cases = [
-    ['openrouter', 'openrouterCaption'],
-    ['openai-cost', 'openaiCostCaption'],
-    ['anthropic-cost', 'anthropicCostCaption'],
+    ['openrouter', 'openrouterCaption', ['data.form.name', 'data.form.secret']],
+    ['openai-cost', 'costCaption', ['data.form.name', 'data.form.preset', 'data.form.secret']],
+    ['anthropic-cost', 'costCaption', ['data.form.name', 'data.form.preset', 'data.form.secret']],
   ]
-  for (const [preset, captionKey] of cases) {
+  for (const [preset, captionKey, binds] of cases) {
     const state = freshState({ formOpen: true, form: draftForm(presetDraft(preset)) })
     const view = panelView(state, FULL_CAPS)
-    assert.deepEqual(collectInputs(view).map((input) => input.bind), ['data.form.name', 'data.form.secret'], preset)
+    assert.deepEqual(collectInputs(view).map((input) => input.bind), binds, preset)
     const json = JSON.stringify(view)
     assert.ok(json.includes(words('zh')[captionKey].slice(0, 8)), `${preset} 缺少 caption`)
     assert.ok(!json.includes('data.form.siteBase'))
@@ -2111,10 +2108,12 @@ test('panelView: OpenRouter / OpenAI 花费 / Claude 花费简表只有名称+�
     assertResolvable(view, panelData(state, FULL_CAPS), preset)
     assertStructure(view, panelData(state, FULL_CAPS), preset)
   }
-  assert.ok(words('zh').openaiCostCaption.includes('Admin key'))
-  assert.ok(words('zh').openaiCostCaption.includes('本月花费'))
-  assert.ok(words('zh').anthropicCostCaption.includes('估算'))
-  assert.ok(words('zh').anthropicCostCaption.includes('不是余额'))
+  const costState = freshState({ formOpen: true, form: draftForm(presetDraft('anthropic-cost')) })
+  const costSelect = collectInputs(panelView(costState, FULL_CAPS)).find((input) => input.bind === 'data.form.preset')
+  assert.deepEqual(costSelect.options.map((option) => option.value), ['openai-cost', 'anthropic-cost'])
+  assert.ok(words('zh').costCaption.includes('Admin key'))
+  assert.ok(words('zh').costCaption.includes('本月花费'))
+  assert.ok(words('zh').costCaption.includes('不是余额'))
 })
 
 test('空余额卡片：balance=null 显示 —，状态成功且无错误，usage metric 照常', () => {
@@ -2218,6 +2217,55 @@ test('actions: save 三个花费预设走 presetDraft 固定配置', async (t) =
   assert.equal(byPreset['anthropic-cost'].headersText, '{"anthropic-version":"2023-06-01"}')
   assert.equal(byPreset['anthropic-cost'].divisor, 100)
   assert.equal(byPreset['anthropic-cost'].secret, secrets['anthropic-cost'])
+})
+
+test('actions: 合并模板按表单里选的平台落 preset（花费/中转）', async (t) => {
+  const home = await tempHome(t)
+  const { ctx } = fakeHost()
+  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, { data: { balance: 1 } }) })
+  await store.ensureReady()
+
+  // 花费组：入口是 OpenAI 花费，表单里改选 Claude → 存成 anthropic-cost。
+  await store.actions.add({}, { locale: 'zh-CN' })
+  await store.actions['choose-template']({}, { locale: 'zh-CN', value: { preset: 'openai-cost' } })
+  let effects = await store.actions.save({}, {
+    locale: 'zh-CN',
+    value: {
+      values: {
+        'data.form.preset': 'anthropic-cost',
+        'data.form.name': 'Claude',
+        'data.form.secret': 'sk-ant-admin',
+      },
+    },
+  })
+  assert.equal(effects.at(-1).text, '已保存')
+
+  // 中转组：入口是 new-api，表单里改选 one-api 旧站 → 存成 oneapi，用量走 dashboard。
+  await store.actions.add({}, { locale: 'zh-CN' })
+  await store.actions['choose-template']({}, { locale: 'zh-CN', value: { preset: 'newapi' } })
+  effects = await store.actions.save({}, {
+    locale: 'zh-CN',
+    value: {
+      values: {
+        'data.form.preset': 'oneapi',
+        'data.form.siteBase': 'https://old-relay.example.com',
+        'data.form.secret': 'old-token',
+        'data.form.name': '旧站',
+      },
+    },
+  })
+  assert.equal(effects.at(-1).text, '已保存')
+
+  const saved = await loadConfig(configPath(home))
+  const byPreset = Object.fromEntries(saved.providers.map((provider) => [provider.preset, provider]))
+  assert.ok(byPreset['anthropic-cost'], '应落成 anthropic-cost')
+  assert.ok(byPreset['anthropic-cost'].url.includes('/organizations/cost_report'))
+  assert.equal(byPreset['anthropic-cost'].authType, 'header')
+  assert.ok(byPreset.oneapi, '应落成 oneapi')
+  assert.equal(byPreset.oneapi.url, 'https://old-relay.example.com/api/user/self')
+  assert.ok(byPreset.oneapi.usageUrl.includes('/api/user/dashboard'))
+  assert.equal(byPreset.oneapi.symbol, '$')
+  assert.equal(byPreset.oneapi.secret, 'old-token')
 })
 
 // ---------- v2.0 币种符号 / 附加信息 / 迁移 ----------

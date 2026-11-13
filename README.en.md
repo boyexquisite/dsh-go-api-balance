@@ -1,9 +1,9 @@
 # dsh-go-api-balance
 
 Native **API balance** panel for the **DSH Go** phone app: collect the balances of any HTTP
-endpoint into one panel. Ten built-in templates (DeepSeek, new-api, one-api, Kimi, Xiaomi MiMo,
-OpenRouter, OpenAI spend, Claude spend, OpenCode Go, Command Code); everything else is a custom "service": URL + key/token +
-JSON field paths.
+endpoint into one panel. Six mainstream templates (DeepSeek, new-api / one-api relay, OpenRouter,
+OpenAI / Claude spend, OpenCode Go / Command Code, custom); everything else is a custom
+"service": URL + key/token + JSON field paths.
 
 - **Panel**: one card per service (name / balance / two large usage metrics / status). The chevron
   opens a menu with edit / delete and details (top-up, gift, subscription). No grand total, since
@@ -35,31 +35,28 @@ The host must be able to reach the balance endpoints you configure.
 1. Open **API balance** → **Add service** → pick a type.
 2. Fill just the key fields:
    - **DeepSeek**: API key only.
-   - **new-api relay**: site URL (with or without `/v1`) + system access token; balance, 7-day
-     usage and subscriptions load automatically, currency is auto-detected.
-   - **one-api relay (legacy)**: site URL + access token; usage comes from `/api/user/dashboard`.
-   - **Kimi / MiMo / OpenRouter**: API key only.
-   - **OpenAI / Claude spend**: organization Admin key; monthly spend only, not a balance.
+   - **new-api / one-api relay**: pick the site type, then site URL (with or without `/v1`) +
+     access token; balance, 7-day usage and subscriptions load automatically, currency is
+     auto-detected (older one-api uses `/api/user/dashboard` for usage).
+   - **OpenRouter**: API key only.
+   - **OpenAI / Claude spend**: pick the platform, then organization Admin key; monthly spend only,
+     not a balance.
+   - **OpenCode Go / Command Code**: pick the platform, then API key only; subscription quota.
    - **Custom**: URL/auth/balance path in "Common", the rest under "Advanced".
 3. It refreshes right after saving; opening the panel refreshes too.
 
 Field paths look like `data.quota` or `balance_infos[0].total_balance`, and simple arithmetic is
-supported: `a + b`, `a - b` (e.g. MiMo cash + gift, subscription total - used).
+supported: `a + b`, `a - b` (e.g. cash + gift, subscription total - used).
 
 ## Supported platforms
 
 | Template | Shows | Endpoint | Credential |
 |---|---|---|---|
 | DeepSeek | balance (auto ¥/$), top-up, gift | `GET /user/balance` | API key |
-| new-api relay | balance, used quota, 7-day tokens/requests, subscription remaining/total/used/expiry | `/api/user/self`, `/api/data/self`, `/api/subscription/self`, `/api/status` | system access token |
-| one-api relay (legacy) | balance, used quota, 7-day tokens/requests | `/api/user/self`, `/api/user/dashboard`, `/api/status` | access token |
-| Kimi / Moonshot | balance, voucher, cash (CNY or USD) | `/v1/users/me/balance` | API key |
-| Xiaomi MiMo | spendable balance (cash + gift), cash/gift/frozen/credit | `/v1/platform/balance` | API key |
+| new-api / one-api relay | new-api: balance, used quota, 7-day tokens/requests, subscription remaining/total/used/expiry; older one-api: balance, used quota, 7-day tokens/requests | `/api/user/self`, `/api/data/self` (legacy `/api/user/dashboard`), `/api/subscription/self`, `/api/status` | access token |
 | OpenRouter | remaining limit (— when no key limit), today and month spend | `/api/v1/key` | API key |
-| OpenAI spend | month spend only (not a balance) | `/v1/organization/costs` | org Admin key |
-| Claude spend | month spend only (official estimate, not a balance) | `/v1/organizations/cost_report` | Admin key |
-| OpenCode Go (subscription) | 5h window remaining % (card), weekly/monthly remaining %, reset dates | `/zen/go/v1/usage` | OpenCode Go API key |
-| Command Code (subscription) | monthly credits left, 5h/weekly money left, allowance and resets | `/alpha/billing/credits` | Command Code Provider API key |
+| OpenAI / Claude spend | month spend only (Claude is an official estimate, not a balance) | `/v1/organization/costs` / `/v1/organizations/cost_report` | org Admin key / Admin key |
+| OpenCode Go / Command Code | subscription quota: 5h/window remaining % (OpenCode), weekly/monthly remaining %, resets; or Command Code monthly credits left and 5h/weekly money left | `/zen/go/v1/usage` / `/alpha/billing/credits` | respective API key |
 
 Custom-only (no built-in template, endpoints not officially documented / unstable): Zhipu GLM,
 SiliconFlow (reported retired 2026-08), ModelScope magicubes, MiniMax M Plan, Ace Data.

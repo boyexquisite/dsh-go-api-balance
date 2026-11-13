@@ -3,18 +3,13 @@ import assert from 'node:assert/strict'
 import { PRESETS, presetDraft, presetOptions } from '../lib/presets.js'
 import { validateProvider } from '../lib/config.js'
 
-test('PRESETS 包含十个内置模板，文案符合 spec', () => {
+test('PRESETS 只列六种主流模板（旧模板保留 code 支持但不再展示）', () => {
   assert.deepEqual(PRESETS, [
     { id: 'deepseek', label: 'DeepSeek 官方' },
-    { id: 'newapi', label: 'new-api 中转' },
-    { id: 'oneapi', label: 'one-api 中转（旧站）' },
-    { id: 'kimi', label: 'Kimi / Moonshot' },
-    { id: 'mimo', label: '小米 MiMo' },
+    { id: 'newapi', label: 'new-api / one-api 中转' },
     { id: 'openrouter', label: 'OpenRouter' },
-    { id: 'openai-cost', label: 'OpenAI 花费' },
-    { id: 'anthropic-cost', label: 'Claude 花费' },
-    { id: 'opencode-go', label: 'OpenCode Go（订阅）' },
-    { id: 'commandcode', label: 'Command Code（订阅）' },
+    { id: 'openai-cost', label: 'OpenAI / Claude 花费' },
+    { id: 'opencode-go', label: 'OpenCode Go / Command Code' },
   ])
 })
 
@@ -22,19 +17,14 @@ test('presetOptions 含自定义，label/value 成对且每次新建', () => {
   const options = presetOptions()
   assert.deepEqual(options, [
     { label: 'DeepSeek 官方', value: 'deepseek' },
-    { label: 'new-api 中转', value: 'newapi' },
-    { label: 'one-api 中转（旧站）', value: 'oneapi' },
-    { label: 'Kimi / Moonshot', value: 'kimi' },
-    { label: '小米 MiMo', value: 'mimo' },
+    { label: 'new-api / one-api 中转', value: 'newapi' },
     { label: 'OpenRouter', value: 'openrouter' },
-    { label: 'OpenAI 花费', value: 'openai-cost' },
-    { label: 'Claude 花费', value: 'anthropic-cost' },
-    { label: 'OpenCode Go（订阅）', value: 'opencode-go' },
-    { label: 'Command Code（订阅）', value: 'commandcode' },
+    { label: 'OpenAI / Claude 花费', value: 'openai-cost' },
+    { label: 'OpenCode Go / Command Code', value: 'opencode-go' },
     { label: '自定义', value: 'custom' },
   ])
   options.pop()
-  assert.equal(presetOptions().length, 11)
+  assert.equal(presetOptions().length, 6)
 })
 
 test('deepseek 模板字段严格符合 spec', () => {

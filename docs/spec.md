@@ -649,3 +649,13 @@ export function presetOptions() // → [{ label, value }] 给 UI 选项（含 cu
 - 菜单触发从标题行挪到状态行：状态行改为 `list` 单行（`title` 绑定 `data.cards<i>.status`，`action` 仍是 `card-menu`），右侧系统箭头保留；`formOpen===true` 时状态行不带 action、不可点。
 - 卡片顺序：名称 → 状态行 → 余额 → 用量 metric → 附加行 / 错误 callout → 菜单（打开时）。
 - 单测同步：名称文本与样式、状态行 action、表单态不可点、预算截断按名称取；328 项全绿，check 0 error。
+
+## 25. v0.5.0：模板精简到 6 种主流平台
+
+> 哥哥 2026-11-13：服务类型太多，只挑几个主流平台。
+
+- 添加服务列表 11 → 6：DeepSeek 官方 / new-api·one-api 中转 / OpenRouter / OpenAI·Claude 花费 / OpenCode Go·Command Code / 自定义。
+- 合并组在表单里加一个 `select` 绑定 `data.form.preset`（保存时随表单值提交，不需要 onChange）：中转组 new-api/one-api，花费组 OpenAI/Claude，订阅组 OpenCode/Command Code；`captions` 用组内通用文案。
+- `PRESETS` 只保留这 5 组；Kimi / 小米 MiMo 不再列出，但 `presetDraft`、表单分支、保存分支全部保留，老配置照常编辑。
+- 保存逻辑：`base.preset` 来自表单 select 值（`state.form.preset` 兜底），落到具体 preset；中转组在 autoUnit 开启且表单里切换过站点类型时，货币符号用目标模板默认值（one-api → `$`），避免沿用 new-api 草稿的 `¥`。
+- 单测：列表 6 项、合并表单 select 选项、保存按所选平台落 preset（含 one-api dashboard 用量与 `$` 符号）；329 项全绿，check 0 error。
