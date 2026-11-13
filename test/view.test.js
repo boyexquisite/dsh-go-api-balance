@@ -472,7 +472,7 @@ test('panelView: 模板表单只显示关键字段（deepseek 2 项 / newapi aut
   manual.form = draftForm(presetDraft('newapi'))
   manual.form.autoUnit = false
   const manualInputs = collectInputs(panelView(manual, FULL_CAPS)).map((input) => input.bind)
-  for (const bind of ['data.form.symbol', 'data.form.multiplier', 'data.form.autoUnit']) {
+  for (const bind of ['data.form.symbol', 'data.form.divisor', 'data.form.multiplier', 'data.form.autoUnit']) {
     assert.ok(manualInputs.includes(bind), `手动单位时应有 ${bind}`)
   }
 
@@ -1920,6 +1920,7 @@ test('actions: newapi 表单可关掉 autoUnit 并落盘', async (t) => {
         'data.form.secret': 'sk-relay-token',
         'data.form.autoUnit': false,
         'data.form.symbol': '¥',
+        'data.form.divisor': 1000000,
         'data.form.multiplier': 2,
         'data.form.name': 'STA1N',
       },
@@ -1929,6 +1930,8 @@ test('actions: newapi 表单可关掉 autoUnit 并落盘', async (t) => {
   const saved = (await loadConfig(configPath(home))).providers[0]
   assert.equal(saved.autoUnit, false)
   assert.equal(saved.url, 'https://sta1n.ai/api/user/self')
+  assert.equal(saved.divisor, 1000000)
+  assert.equal(saved.multiplier, 2)
 })
 
 
