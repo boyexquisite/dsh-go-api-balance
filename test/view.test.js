@@ -1012,7 +1012,7 @@ function fakeHost () {
 async function tempHome (t) {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-balance-ui-'))
   t.after(async () => {
-    await fs.rm(home, { recursive: true, force: true })
+    await fs.rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 })
   })
   return home
 }
