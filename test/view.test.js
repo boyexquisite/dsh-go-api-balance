@@ -315,8 +315,10 @@ test('words: 中英文案 key 齐全、值非空、长度在 UI 上限内', () =
     assert.ok([...dictionary.edit].length <= 24, '编辑按钮标签')
     assert.ok([...dictionary.delete].length <= 24, '删除按钮标签')
     assert.ok([...dictionary.cancel].length <= 24, '取消按钮标签')
-    assert.ok([...dictionary.confirmLabel].length <= 12, '确认按钮标签')
-    assert.ok([...dictionary.cancelLabel].length <= 12, '取消按钮标签')
+    assert.ok([...dictionary.cardActions].length <= 200, 'chips 标签')
+    assert.ok([...dictionary.cardConfirm].length <= 200, 'chips 标签')
+    assert.ok([...dictionary.confirmYes].length <= 24)
+    assert.ok([...dictionary.confirmNo].length <= 24)
     assert.ok([...dictionary.emptyTitle].length <= 40, '空状态标题')
     assert.ok([...dictionary.emptyMessage].length <= 120, '空状态说明')
     assert.ok([...dictionary.pendingRefresh].length <= 16, 'pending 标签')
@@ -449,6 +451,9 @@ test('panelData: cards 与 providers 同序，含名称/余额/用量/状态/错
   assert.ok(data.cards[0].usage.includes('近7天 请求 6,837'), data.cards[0].usage)
   assert.equal(data.cards[0].status, '成功 · 09:12')
   assert.equal(data.cards[0].error, '')
+  assert.equal(data.cardChoice0, null, 'chips 选择值恒 null')
+  assert.equal(data.cardConfirm0, null)
+  assert.equal(Object.hasOwn(data, 'cardChoice1'), false)
   assert.equal(data.rows.length, 1, 'v1 仍用列表摘要')
 
   state.results.p_abc12345 = makeResult('p_abc12345', { ok: false, balance: null, error: '密钥或令牌无效' })
@@ -684,7 +689,7 @@ test('布局顺序：空状态/卡片 → 测试结果 → 向导/表单 → 底
 
   const tested = stateWithProvider()
   tested.test = { id: 'p_abc12345', title: '测试', raw: '{"a":1}' }
-  assert.deepEqual(childrenTypes(panelView(tested, FULL_CAPS)), ['stack', 'stack', 'actions'])
+  assert.deepEqual(childrenTypes(panelView(tested, FULL_CAPS)), ['stack', 'actions'], '测试结果块已移除')
 
   const picking = stateWithProvider({ pickTemplate: true })
   assert.deepEqual(childrenTypes(panelView(picking, FULL_CAPS)), ['stack', 'text', 'list', 'actions'])
@@ -701,48 +706,56 @@ test('布局顺序：空状态/卡片 → 测试结果 → 向导/表单 → 底
   assert.deepEqual(bottomActions(formEmpty).items.map((item) => item.action), ['refresh', 'add'])
 })
 
-test('卡片按钮：grid 分格小按钮，编辑/删除带静态 args，custom 多一个测试', () => {
-  const deepseekView = panelView(stateWithProvider(), FULL_CAPS)
-  const card = deepseekView.children[0]
+test('卡片操作是一行 chips：label/绑定/options/onChange 带 provider id', () => {
+  const view = panelView(stateWithProvider(), FULL_CAPS)
+  const card = view.children[0]
   assert.equal(card.type, 'stack')
-  const grid = nodesOfType(card, 'grid')[0]
-  assert.equal(grid.columns, 2)
-  assert.equal(grid.children.length, 2)
-  assert.deepEqual(grid.children.map((child) => child.type), ['actions', 'actions'])
-  for (const child of grid.children) assert.equal(child.items.length, 1, '每个半宽按钮单独一个 actions')
-  assert.deepEqual(grid.children.map((child) => child.items[0].action), [
-    { id: 'edit', args: { id: 'p_abc12345' } },
-    { id: 'delete', args: { id: 'p_abc12345' } },
+  assert.equal(nodesOfType(card, 'grid').length, 0, '不再用 grid 按钮')
+  assert.equal(nodesOfType(card, 'actions').length, 0)
+  const chips = nodesOfType(card, 'chips')[0]
+  assert.ok(chips, '缺少 chips')
+  assert.equal(chips.label, words('zh').cardActions)
+  assert.equal(chips.bind, 'data.cardChoice0')
+  assert.deepEqual(chips.options, [
+    { label: words('zh').edit, value: 'edit' },
+    { label: words('zh').delete, value: 'delete' },
   ])
-  assert.equal(grid.children[0].items[0].label, words('zh').edit)
-  assert.equal(grid.children[1].items[0].label, words('zh').delete)
+  assert.deepEqual(chips.onChange, { id: 'card-action', args: { id: 'p_abc12345' } })
+  assert.equal(collectInputs(card).length, 1)
 
-  const custom = stateWithProvider()
-  custom.config.providers[0].preset = 'custom'
-  const customGrid = nodesOfType(panelView(custom, FULL_CAPS), 'grid')[0]
-  assert.equal(customGrid.columns, 3)
-  assert.deepEqual(customGrid.children.map((child) => child.items[0].action), [
-    { id: 'edit', args: { id: 'p_abc12345' } },
-    { id: 'test', args: { id: 'p_abc12345' } },
-    { id: 'delete', args: { id: 'p_abc12345' } },
-  ])
-  assert.equal(customGrid.children[1].items[0].label, words('zh').test)
+  // 每家的 bind 与卡片序对齐
+  const two = stateWithProvider()
+  two.config.providers.push(makeProvider({ id: 'p_def67890', name: '第二家' }))
+  const twoView = panelView(two, FULL_CAPS)
+  const binds = twoView.children.filter((child) => child.type === 'stack').map((child) => nodesOfType(child, 'chips')[0].bind)
+  assert.deepEqual(binds, ['data.cardChoice0', 'data.cardChoice1'])
+  const args = twoView.children.filter((child) => child.type === 'stack').map((child) => nodesOfType(child, 'chips')[0].onChange.args.id)
+  assert.deepEqual(args, ['p_abc12345', 'p_def67890'])
+
+  // 表单打开时卡片不出 chips（省 input 名额）
+  const form = stateWithProvider({ formOpen: true })
+  form.form = providerForm(form.config.providers[0])
+  const formView = panelView(form, FULL_CAPS)
+  const cardInForm = formView.children.find((child) => child.type === 'stack')
+  assert.equal(nodesOfType(cardInForm, 'chips').length, 0)
+  assert.ok(collectInputs(formView).length <= 32)
 })
 
-test('删除确认在卡片里：callout + grid [确认删除][取消] 静态 args', () => {
+test('删除确认在卡片里：callout + confirm chips（不再用 confirm 组件）', () => {
   const state = stateWithProvider({ confirmDelete: { id: 'p_abc12345' } })
   const view = panelView(state, FULL_CAPS)
   const card = view.children[0]
   const callout = nodesOfType(card, 'callout')[0]
-  assert.ok(callout.text.includes('确定删除'), callout.text)
-  const grid = nodesOfType(card, 'grid')[0]
-  assert.equal(grid.columns, 2)
-  assert.deepEqual(grid.children.map((child) => child.items[0].action), [
-    { id: 'delete', args: { id: 'p_abc12345', confirm: true } },
-    { id: 'delete-cancel', args: { id: 'p_abc12345' } },
+  assert.ok(callout.text.includes('确定删除「DeepSeek」？'), callout.text)
+  assert.equal(nodesOfType(card, 'confirm').length, 0, '不用 confirm 组件')
+  const chips = nodesOfType(card, 'chips')[0]
+  assert.equal(chips.label, words('zh').cardConfirm)
+  assert.equal(chips.bind, 'data.cardConfirm0')
+  assert.deepEqual(chips.options, [
+    { label: words('zh').confirmYes, value: 'yes' },
+    { label: words('zh').confirmNo, value: 'no' },
   ])
-  assert.deepEqual(grid.children.map((child) => child.items[0].label), [words('zh').confirmLabel, words('zh').cancelLabel])
-  assert.equal(nodesOfType(card, 'grid').length, 1, '确认时不再显示编辑/测试按钮')
+  assert.deepEqual(chips.onChange, { id: 'card-confirm', args: { id: 'p_abc12345' } })
 })
 
 test('卡片内容：名称/余额/用量/状态；失败 callout；不再有 keyValue 详情', () => {
@@ -933,7 +946,7 @@ test('apply: 注册 panel/strip，加载时不联网、不写配置文件', asyn
   assert.equal(regs.strip.id, 'balance-strip')
   assert.equal(typeof regs.panel.view, 'function')
   assert.equal(typeof regs.panel.data, 'function')
-  for (const action of ['refresh', 'add', 'choose-template', 'edit', 'form-cancel', 'save', 'delete', 'delete-cancel', 'test', 'close-test']) {
+  for (const action of ['refresh', 'add', 'choose-template', 'form-cancel', 'save', 'card-action', 'card-confirm', 'test']) {
     assert.equal(typeof regs.panel.actions[action], 'function', `缺少动作 ${action}`)
   }
   await store.ensureReady()
@@ -1031,7 +1044,7 @@ test('apply: 缓存还新或 refreshOnOpen=false 时不后台刷新', async (t) 
   assert.ok(store.state.config.providers.length === 1)
 })
 
-test('actions: add/edit(静态 args)/form-cancel 返回 patch+refresh 并更新视图状态', async (t) => {
+test('actions: card-action(edit)、add、form-cancel 更新视图状态', async (t) => {
   const home = await tempHome(t)
   const { ctx, regs } = fakeHost()
   const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, { data: { balance: 1 } }) })
@@ -1039,7 +1052,7 @@ test('actions: add/edit(静态 args)/form-cancel 返回 patch+refresh 并更新�
   store.state.config.providers.push(makeProvider())
   store.state.results.p_abc12345 = makeResult('p_abc12345')
 
-  let effects = await store.actions.edit({}, { locale: 'zh-CN', value: { id: 'p_abc12345' } })
+  let effects = await store.actions['card-action']({}, { locale: 'zh-CN', value: { value: 'edit', id: 'p_abc12345' } })
   assert.equal(effectTypes(effects).includes('patch'), true)
   assert.equal(effectTypes(effects).includes('refresh'), true)
   assert.equal(store.state.formOpen, true)
@@ -1231,7 +1244,7 @@ test('actions: save 填了用量地址但没填用量字段时给人话报错', 
   assert.equal(effect.text, '填了用量地址就要填用量字段')
 })
 
-test('actions: delete 用静态 args 先确认、可取消，确认后删除并清 results 缓存', async (t) => {
+test('actions: card-action delete 出确认、card-confirm no/yes 分别取消/删除', async (t) => {
   const home = await tempHome(t)
   const provider = makeProvider()
   await saveConfig({ v: 1, providers: [provider], settings: { stripEnabled: true, refreshOnOpen: false, timeoutMs: 12000 } }, configPath(home))
@@ -1240,19 +1253,18 @@ test('actions: delete 用静态 args 先确认、可取消，确认后删除并�
   const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, { data: { balance: 1 } }) })
   await store.ensureReady()
 
-  let effects = await store.actions.delete({}, { locale: 'zh-CN', value: { id: provider.id } })
+  let effects = await store.actions['card-action']({}, { locale: 'zh-CN', value: { value: 'delete', id: provider.id } })
   assert.equal(effectTypes(effects).includes('refresh'), true)
   assert.deepEqual(store.state.confirmDelete, { id: provider.id })
   const confirmView = store.panelView(FULL_CAPS)
-  const callout = nodesOfType(confirmView.children[0], 'callout')[0]
-  assert.ok(callout.text.includes('确定删除「DeepSeek」？'))
+  assert.equal(nodesOfType(confirmView, 'chips')[0].onChange.id, 'card-confirm')
 
-  effects = await store.actions['delete-cancel']({}, { locale: 'zh-CN', value: { id: provider.id } })
+  effects = await store.actions['card-confirm']({}, { locale: 'zh-CN', value: { value: 'no' } })
   assert.equal(store.state.confirmDelete, null)
   assert.equal(store.state.config.providers.length, 1)
 
-  await store.actions.delete({}, { locale: 'zh-CN', value: { id: provider.id } })
-  effects = await store.actions.delete({}, { locale: 'zh-CN', value: { id: provider.id, confirm: true } })
+  await store.actions['card-action']({}, { locale: 'zh-CN', value: { value: 'delete', id: provider.id } })
+  effects = await store.actions['card-confirm']({}, { locale: 'zh-CN', value: { value: 'yes' } })
   assert.equal(store.state.config.providers.length, 0)
   assert.equal(store.state.confirmDelete, null)
   assert.equal(effects.at(-1).text, '已删除')
@@ -1322,12 +1334,13 @@ test('actions: test 用 preview 并在 patch 前脱敏密钥/用户名', async (
   const effects = await handler.result(new AbortController().signal)
   assert.deepEqual(effectTypes(effects), ['patch', 'toast'])
   assert.equal(effects[1].text, '测试成功')
-  const raw = effects[0].data.test.raw
+  const raw = store.state.test.raw
   assert.ok(raw.includes('••••'))
   assert.ok(!raw.includes('sk-super-secret-9999'))
   assert.ok(!raw.includes('alice-user'))
   assert.ok(!raw.includes('abcdefghijklmnop'))
   assert.equal(store.state.test.id, provider.id)
+  assert.equal(Object.hasOwn(effects[0].data, 'test'), false, '视图不再有测试结果块')
   assert.equal(effects[0].data.cards[0].balance, '¥3.00')
   const effectJson = JSON.stringify(effects)
   assert.ok(!effectJson.includes(provider.secret))
@@ -1352,14 +1365,11 @@ test('panelView: v2 但缺 emptyState/codeBlock 时用 callout/text 兜底', () 
   const emptyJson = JSON.stringify(empty)
   assert.ok(emptyJson.includes('"callout"'))
   assert.ok(!emptyJson.includes('"emptyState"'))
-  const tested = stateWithProvider()
-  tested.test = { id: 'p_abc12345', title: '测试', raw: '{"a":1}' }
-  const testedView = panelView(tested, caps)
-  const testedJson = JSON.stringify(testedView)
-  assert.ok(!testedJson.includes('"codeBlock"'))
-  assert.ok(testedJson.includes('data.test.raw'))
-  assertResolvable(testedView, panelData(tested, caps), 'fallback-text')
+  const withCard = stateWithProvider()
+  const cardView = panelView(withCard, caps)
+  assertResolvable(cardView, panelData(withCard, caps), 'fallback-card')
   assertStructure(empty, panelData(freshState(), caps), 'fallback-empty')
+  assertStructure(cardView, panelData(withCard, caps), 'fallback-card')
 })
 
 
@@ -1573,7 +1583,7 @@ test('actions: 编辑旧 newapi（url 带 /v1）反推根地址，保存即修�
   const { ctx } = fakeHost()
   const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, { data: { balance: 1 } }) })
   await store.ensureReady()
-  await store.actions.edit({}, { locale: 'zh-CN', value: { id: broken.id } })
+  await store.actions['card-action']({}, { locale: 'zh-CN', value: { value: 'edit', id: broken.id } })
   assert.equal(store.state.form.siteBase, 'https://sta1n.ai')
   await store.actions.save({}, {
     locale: 'zh-CN',
@@ -1627,4 +1637,42 @@ test('卡片预算：服务很多时按节点预算截断并给提示，data.car
   assert.ok(hint, '隐藏的服务要给一行提示')
   assert.ok(hint.text.includes(String(24 - cardCount)))
   assertResolvable(view, data, 'many-cards')
+})
+
+
+// ---------- v1.5：chips 动作/确认 ----------
+
+test('actions: card-action 未知选择不出效果，card-confirm 无确认态时只复位', async (t) => {
+  const home = await tempHome(t)
+  const provider = makeProvider()
+  await saveConfig({ v: 1, providers: [provider], settings: { stripEnabled: true, refreshOnOpen: false, timeoutMs: 12000 } }, configPath(home))
+  const { ctx } = fakeHost()
+  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, { data: { balance: 1 } }) })
+  await store.ensureReady()
+  assert.deepEqual(await store.actions['card-action']({}, { locale: 'zh-CN', value: { value: 'nope', id: provider.id } }), {})
+  assert.equal(store.state.formOpen, false)
+  assert.equal(store.state.confirmDelete, null)
+
+  const effects = await store.actions['card-confirm']({}, { locale: 'zh-CN', value: { value: 'yes' } })
+  assert.equal(store.state.config.providers.length, 1, '没有确认态时不会误删')
+  assert.equal(effectTypes(effects).includes('refresh'), true)
+})
+
+test('卡片 chips：panelData 给每张卡恒 null 的选择值，输入数不超过 32', () => {
+  const state = freshState()
+  for (let index = 0; index < 24; index++) {
+    state.config.providers.push(makeProvider({ id: `p_${String(index).padStart(8, '0')}`, name: `服务 ${index}` }))
+    state.results[state.config.providers[index].id] = makeResult(state.config.providers[index].id)
+  }
+  const data = panelData(state, FULL_CAPS)
+  for (let index = 0; index < 24; index++) {
+    assert.equal(data[`cardChoice${index}`], null)
+    assert.equal(data[`cardConfirm${index}`], null)
+  }
+  const view = panelView(state, FULL_CAPS)
+  assert.ok(collectInputs(view).length <= 32, `输入 ${collectInputs(view).length} 个`)
+  for (const input of collectInputs(view)) {
+    assert.equal(input.type, 'chips')
+    assert.ok(Object.hasOwn(data, input.bind.slice('data.'.length)), `chips 绑定必须在 panelData 里：${input.bind}`)
+  }
 })

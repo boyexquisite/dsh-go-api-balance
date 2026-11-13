@@ -4,7 +4,7 @@ Native **API balance** panel for the **DSH Go** phone app: collect the balances 
 endpoint into one panel. Templates for DeepSeek and new-api / one-api relays; everything else
 is a custom "service": URL + key/token + JSON field paths.
 
-- **Panel**: one card per service (name / balance / 7-day usage / status, with edit and delete on the card); no grand total, since sites use different currencies.
+- **Panel**: one card per service (name / balance / 7-day usage / status) with a compact one-line edit/delete row; no grand total, since sites use different currencies.
 - **Usage**: an optional second request per service (new-api relays can show the last 7 days' token and request counts); DeepSeek's public API has no usage endpoint.
 - **Status strip**: one line with the total above the composer (can be turned off).
 - **Auth**: Bearer token, custom header, query param, cookie, Basic, or username/password login that trades for a token.

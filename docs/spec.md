@@ -380,3 +380,27 @@ export function presetOptions() // → [{ label, value }] 给 UI 选项（含 cu
 - `strip`：不再显示总余额，`stripData` 返回 `{text:''}`（先隐藏；以后要再加别的口径）。
 - 视图预算、向导/模板表单、自定义常用/高级、自动刷新、绑定路径、v1 降级（仍是只读列表摘要，不搞卡片）保持。
 - tests 同步更新（卡片数量/绑定路径、无 metric、动作 args、确认删除、strip 空、预算）。
+
+## 15. v1.5：卡片操作改成「胶囊」一行（App 按钮排不下一行的问题）
+
+> 真机事实（App 源码确认）：视图 v2 里 `actions`/`confirm`/`grid`/`row` 的多列布局都有
+> 「每个格子至少 136dp × 字号缩放」的下限；插件面板在手机上内容宽约 250dp，两个按钮永远排不下一行，
+> 只能上下两个通栏大按钮。**input 组件（chips/segmented）不受这个下限限制**：面板里 v2 视图整体包在
+> PluginControlsScope 里，带 bind 的 input 可直接编辑、onChange 可以返回 patch/refresh。
+> 所以卡片操作行改用 `chips`，真正一行、更小。
+
+- 卡片里删掉 `grid` + `actions` 操作行，改为一个 `chips`：
+  - `label: '服务操作'`，`bind: 'data.cardChoice<i>'`（i 为卡片序，i=0..n-1，每个视图内唯一）；
+  - `options: [{label:'编辑',value:'edit'}, {label:'删除',value:'delete'}]`；
+  - `onChange: {id:'card-action', args:{id: <providerId>}}`。
+- `panelData` 增加 `cardChoice0..cardChoice<n>`（恒为 null，供 chips 初始无选中；handler 之后由 patch 复位）。
+- `card-action` handler（从 `event.value` 取 `value` 与 `id`）：
+  - `edit` → 打开编辑表单（同现在的 edit 行为），返回 `patch + refresh`；
+  - `delete` → 设 `confirmDelete={id}`，返回 `patch + refresh`（下一帧卡片显示确认）；
+  - 其它忽略。
+- 删除确认沿用：确认时卡片内 `callout` + `confirm`（`delete`，`event.value.confirmed`）；确认/取消逻辑不变。
+- `formOpen === true` 时**卡片不渲染 chips**（省视图输入名额：面板每视图最多 32 个 input，表单本身约 27 个）。
+- 移除卡片上的「测试」按钮与 `testView` 结果块（没有入口了）；`test` 动作保留在 handler 里也可以，但视图不再展示。
+- 面板数据里的 chips 复位：panelData 始终带 `cardChoice<i>: null`；handler 返回的 patch 用 panelData 整份数据，App 的 draft 在 invoke 成功后是 clean，remote 变了会自动清掉草稿。
+- 其余（卡片内容/状态、向导、模板表单、自动刷新、v1 降级、预算、4KiB 断言）不变。
+- tests 同步：卡片 chips 结构/绑定路径（writable 路径也要在 panelData 里）、card-action 两个分支、确认删除、formOpen 时无 chips、输入字段数 ≤32、视图预算、strip 空。
