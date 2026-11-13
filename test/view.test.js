@@ -71,6 +71,7 @@ function makeResult (id, overrides = {}) {
     symbol: '¥',
     decimals: 2,
     details: [{ label: '充值余额', value: 1000 }],
+    usage: [],
     rawPreview: null,
     error: null,
     fetchedAt: FIXED_NOW,
@@ -278,7 +279,7 @@ test('words: 中英文案 key 齐全、值非空、长度在 UI 上限内', () =
     assert.ok([...dictionary.refreshed(12)].length <= 40, 'toast')
     assert.ok([...dictionary.saved].length <= 40, 'toast')
     assert.ok([...dictionary.upgradeHint].length <= 2000, '升级提示')
-    for (const section of [dictionary.tabBasicLabel, dictionary.tabAuthLabel, dictionary.tabFieldsLabel]) {
+    for (const section of [dictionary.tabBasicLabel, dictionary.tabAuthLabel, dictionary.tabFieldsLabel, dictionary.tabUsageLabel]) {
       assert.ok([...section].length <= 24, '页签标签')
     }
     for (const [key, label] of Object.entries(dictionary.fields)) {
@@ -308,7 +309,21 @@ test('panelView: v2 根节点、无 minApp、三组页签与必填字段', () =>
     assert.ok(binds.includes(`data.form.${field}`), `缺少表单字段 ${field}`)
   }
   assert.equal(new Set(binds).size, binds.length, '表单字段不能重复绑定')
-  assert.equal(collectInputs(view).length, 23)
+  assert.equal(collectInputs(view).length, 27)
+  const tabs = nodesOfType(view, 'tabs')[0]
+  assert.equal(tabs.items.length, 4, '表单应有 4 个页签')
+  assert.deepEqual(tabs.items.map((item) => item.label), [
+    words('zh').tabBasicLabel,
+    words('zh').tabAuthLabel,
+    words('zh').tabFieldsLabel,
+    words('zh').tabUsageLabel,
+  ])
+  for (const field of ['usageUrl', 'usageArrayPath', 'usageFieldsText', 'usageScale']) {
+    const input = collectInputs(view).find((item) => item.bind === `data.form.${field}`)
+    assert.ok(input, `缺少用量表单字段 ${field}`)
+    assert.ok(input.label.trim() !== '')
+  }
+  assert.ok(JSON.stringify(view).includes('{7d}'), '用量地址 placeholder 带 {7d} 说明')
 })
 
 test('panelView: 所有状态下的绑定路径都能在 panelData 找到', () => {
@@ -334,6 +349,61 @@ test('panelData: 行内 select action、总余额、明细、状态条', () => {
   assert.equal(data.test.raw, '')
   assert.equal(data.confirmDelete.text, '')
   assert.equal(stripData(state, FULL_CAPS).icon, 'wallet')
+})
+
+test('列表副标题：拼最多 2 项用量，整行 ≤60 字，无用量保持原样', () => {
+  const base = stateWithProvider()
+  const row = panelData(base, FULL_CAPS).rows[0]
+  assert.equal(row.subtitle, '成功 · 09:12')
+  assert.ok(!row.subtitle.includes('· ·'))
+
+  const withUsage = stateWithProvider()
+  withUsage.results.p_abc12345 = makeResult('p_abc12345', {
+    usage: [
+      { label: '近7天 Token', value: 1554060713 },
+      { label: '近7天 请求', value: 6837 },
+      { label: '第三项', value: 1 },
+    ],
+  })
+  const usageRow = panelData(withUsage, FULL_CAPS).rows[0]
+  assert.ok(usageRow.subtitle.startsWith('成功 · '), usageRow.subtitle)
+  assert.ok(usageRow.subtitle.includes('近7天 Token 15.5亿'), usageRow.subtitle)
+  assert.ok(usageRow.subtitle.includes('近7天 请求 6,837'), usageRow.subtitle)
+  assert.ok(!usageRow.subtitle.includes('第三项'), '最多拼 2 项')
+  assert.ok([...usageRow.subtitle].length <= 60, '副标题整行 ≤60 字')
+
+  const english = panelData(withUsage, { ...FULL_CAPS, locale: 'en-US' }).rows[0]
+  assert.ok(english.subtitle.includes('1.6B'), english.subtitle)
+  assert.ok(english.subtitle.includes('6.8K'), english.subtitle)
+
+  const scaled = stateWithProvider()
+  scaled.config.providers[0].usageScale = true
+  scaled.config.providers[0].divisor = 500000
+  scaled.results.p_abc12345 = makeResult('p_abc12345', { usage: [{ label: '额度', value: 1000000 }] })
+  assert.ok(panelData(scaled, FULL_CAPS).rows[0].subtitle.includes('额度 ¥2.00'))
+
+  const failed = stateWithProvider()
+  failed.results.p_abc12345 = makeResult('p_abc12345', {
+    ok: false, balance: null, details: [],
+    usage: [{ label: '近7天 请求', value: 6837 }],
+  })
+  assert.ok(panelData(failed, FULL_CAPS).rows[0].subtitle.includes('6,837'))
+
+  const longLabel = stateWithProvider()
+  longLabel.results.p_abc12345 = makeResult('p_abc12345', {
+    usage: [
+      { label: '很长的用量标签'.repeat(3), value: 1554060713 },
+      { label: '另一个很长的用量标签'.repeat(3), value: 6837 },
+    ],
+  })
+  const longSubtitle = panelData(longLabel, FULL_CAPS).rows[0].subtitle
+  assert.equal([...longSubtitle].length, 60, longSubtitle)
+  assert.ok(longSubtitle.endsWith('…'), longSubtitle)
+
+  const disabled = stateWithProvider()
+  disabled.config.providers[0].enabled = false
+  disabled.results.p_abc12345 = makeResult('p_abc12345', { usage: [{ label: '请求', value: 9 }] })
+  assert.equal(panelData(disabled, FULL_CAPS).rows[0].subtitle, '已停用')
 })
 
 // ---------- 预算 ----------
@@ -381,7 +451,7 @@ test('预算：表单最坏情况提交 JSON < 4096 字节，maxLength 与 FORM_
   }
   const bytes = Buffer.byteLength(JSON.stringify(values))
   assert.ok(bytes < 4096, `最坏情况表单提交 ${bytes} 字节`)
-  assert.equal(Object.keys(values).length, 23)
+  assert.equal(Object.keys(values).length, 27)
   for (const field of ['name', 'url', 'balancePath']) {
     const input = inputs.find((item) => item.bind === `data.form.${field}`)
     assert.equal(input.required, true, `${field} 应必填`)
@@ -389,6 +459,35 @@ test('预算：表单最坏情况提交 JSON < 4096 字节，maxLength 与 FORM_
   const secret = inputs.find((item) => item.bind === 'data.form.secret')
   assert.equal(secret.required, true, '新建时密钥必填')
   assert.equal(secret.placeholder, words('zh').secretPlaceholderNew)
+})
+
+test('FORM_LIMITS: 按 spec §11.4 收紧，含用量字段', () => {
+  assert.deepEqual(FORM_LIMITS, {
+    url: 400,
+    loginUrl: 300,
+    secret: 600,
+    username: 80,
+    tokenPath: 80,
+    tokenHeader: 48,
+    tokenPrefix: 24,
+    secretHeader: 48,
+    secretParam: 48,
+    balancePath: 100,
+    currencyPath: 80,
+    headersText: 200,
+    bodyText: 200,
+    detailText: 300,
+    usageUrl: 300,
+    usageArrayPath: 40,
+    usageFieldsText: 120,
+    name: 24,
+    symbol: 8,
+  })
+  const view = panelView(freshState({ formOpen: true }), FULL_CAPS)
+  for (const input of collectInputs(view)) {
+    const field = input.bind.slice('data.form.'.length)
+    if (Object.hasOwn(FORM_LIMITS, field)) assert.equal(input.maxLength, FORM_LIMITS[field], field)
+  }
 })
 
 // ---------- 安全 ----------
@@ -626,6 +725,32 @@ test('表单草稿：空表单默认值、编辑草稿不回填密钥、明细�
   assert.deepEqual(parseDetailText(undefined), [])
 })
 
+test('表单草稿：usage 字段默认值与 newapi 反解成文本', () => {
+  const empty = emptyForm()
+  assert.equal(empty.usageUrl, '')
+  assert.equal(empty.usageMethod, 'GET')
+  assert.equal(empty.usageArrayPath, '')
+  assert.equal(empty.usageFieldsText, '')
+  assert.equal(empty.usageScale, false)
+
+  const provider = makeProvider({
+    usageUrl: 'https://relay.example.com/api/data/self?start_timestamp={7d}&end_timestamp={now}',
+    usageMethod: 'GET',
+    usageArrayPath: 'data',
+    usageFields: [
+      { label: '近7天 Token', path: 'token_used' },
+      { label: '近7天 请求', path: 'count' },
+    ],
+    usageScale: false,
+  })
+  const form = providerForm(provider)
+  assert.equal(form.usageUrl, provider.usageUrl)
+  assert.equal(form.usageArrayPath, 'data')
+  assert.equal(form.usageScale, false)
+  assert.equal(form.usageFieldsText, '近7天 Token=token_used\n近7天 请求=count')
+  assert.deepEqual(parseDetailText(form.usageFieldsText), provider.usageFields)
+})
+
 // ---------- apply 注册与动作 ----------
 
 function fakeHost () {
@@ -838,6 +963,11 @@ test('actions: preset 的 onChange 只返回 patch，且保留已填名称/地�
   assert.equal(store.state.form.name, '我的服务')
   assert.equal(store.state.form.url, 'https://custom.example.com/balance')
   assert.equal(store.state.form.divisor, 500000)
+  assert.equal(store.state.form.usageArrayPath, 'data')
+  assert.ok(store.state.form.usageUrl.endsWith('/api/data/self?start_timestamp={7d}&end_timestamp={now}&default_time=day'), store.state.form.usageUrl)
+  assert.equal(store.state.form.usageFieldsText, '近7天 Token=token_used\n近7天 请求=count')
+  assert.equal(store.state.form.usageScale, false)
+  assert.equal(store.state.form.usageMethod, 'GET')
   assert.equal(effect.type, 'patch')
 })
 
@@ -896,6 +1026,64 @@ test('actions: save 成功落盘、清空表单、toast 已保存', async (t) =>
   assert.equal(saved.providers[0].multiplier, 500000)
   assert.equal(saved.providers[0].secret, 'sk-test-secret-abcdef')
   assert.equal(store.state.selectedId, saved.providers[0].id)
+})
+
+test('actions: save 解析 usageFieldsText、透传 usage 字段并落盘', async (t) => {
+  const home = await tempHome(t)
+  const { ctx } = fakeHost()
+  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, { data: { balance: 1 } }) })
+  await store.ensureReady()
+  await store.actions.add({}, { locale: 'zh-CN' })
+  const usageUrl = 'https://relay.example.com/api/data/self?start_timestamp={7d}&end_timestamp={now}'
+  const effects = await store.actions.save({}, {
+    locale: 'zh-CN',
+    value: {
+      values: {
+        'data.form.name': '中转',
+        'data.form.url': 'https://relay.example.com/api/user/self',
+        'data.form.secret': 'sk-relay-secret',
+        'data.form.balancePath': 'data.quota',
+        'data.form.usageUrl': usageUrl,
+        'data.form.usageArrayPath': 'data',
+        'data.form.usageFieldsText': '近7天 Token=token_used\n近7天 请求=count',
+        'data.form.usageScale': true,
+      },
+    },
+  })
+  assert.equal(effectTypes(effects).includes('toast'), true)
+  assert.equal(effects.at(-1).text, '已保存')
+  const saved = (await loadConfig(configPath(home))).providers[0]
+  assert.equal(saved.usageUrl, usageUrl)
+  assert.equal(saved.usageMethod, 'GET')
+  assert.equal(saved.usageArrayPath, 'data')
+  assert.equal(saved.usageScale, true)
+  assert.deepEqual(saved.usageFields, [
+    { label: '近7天 Token', path: 'token_used' },
+    { label: '近7天 请求', path: 'count' },
+  ])
+  assert.equal(Object.hasOwn(saved, 'usageFieldsText'), false, 'usageFieldsText 不落盘')
+})
+
+test('actions: save 填了用量地址但没填用量字段时给人话报错', async (t) => {
+  const home = await tempHome(t)
+  const { ctx } = fakeHost()
+  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, { data: { balance: 1 } }) })
+  await store.ensureReady()
+  await store.actions.add({}, { locale: 'zh-CN' })
+  const effect = await store.actions.save({}, {
+    locale: 'zh-CN',
+    value: {
+      values: {
+        'data.form.name': '中转',
+        'data.form.url': 'https://relay.example.com/api/user/self',
+        'data.form.secret': 'sk-relay-secret',
+        'data.form.balancePath': 'data.quota',
+        'data.form.usageUrl': 'https://relay.example.com/api/data/self',
+      },
+    },
+  })
+  assert.equal(effect.type, 'toast')
+  assert.equal(effect.text, '填了用量地址就要填用量字段')
 })
 
 test('actions: delete 先确认再删除，并清 results 缓存', async (t) => {

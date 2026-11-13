@@ -3,7 +3,8 @@
 给 **DSH Go 手机 App** 的原生「API 余额」面板：把任意 HTTP 接口的余额聚到一个面板里。
 内置 DeepSeek 官方与 new-api / one-api 中转模板，其余服务完全自定义——填地址、密钥和余额字段路径就行。
 
-- **面板**：总余额、每家服务一行（余额 / 币种 / 更新时间 / 状态）、选中看明细；「添加服务」表单直接填。
+- **面板**：总余额、每家服务一行（余额 / 状态 / 更新时间 / 用量）、选中看明细；「添加服务」表单直接填。
+- **用量**：每家服务可选配一个「用量」请求（中转站可显示近 7 天 Token 数与请求数）；DeepSeek 官方 API 只有余额，不提供用量。
 - **状态条**：输入框上方一行总余额（可在面板里关掉）。
 - **鉴权**：Bearer 令牌、自定义请求头、Query 参数、Cookie、Basic、账号密码登录换 token。
 - **模板**：DeepSeek 官方 / new-api（one-api）中转 / 自定义；字段路径支持 `data.quota`、`balance_infos[0].total_balance` 这种写法。
@@ -36,6 +37,7 @@ dsh plugin --profile web add dsh-go-api-balance
 |---|---|---|---|---|
 | DeepSeek | `https://api.deepseek.com/user/balance` | Bearer | `balance_infos[0].total_balance` | 原值 |
 | new-api / one-api | `<站点>/api/user/self` | Bearer（站点访问令牌） | `data.quota` | `÷500000 × 乘数` |
+| ↑ 的用量 | `<站点>/api/data/self?start_timestamp={7d}&end_timestamp={now}&default_time=day` | 同上 | 数组 `data` 里 `token_used`/`count` 求和 | 原值 |
 
 > new-api 各站货币不同：显示成 `🍪`、`$` 还是 `¥`，按站点后台的「1 元 = N 额度」自己调乘数和符号。
 

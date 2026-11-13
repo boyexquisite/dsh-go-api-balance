@@ -110,7 +110,8 @@ test('validateProvider 接受完整合法草稿并补齐默认值', () => {
     'authType', 'balancePath', 'bodyText', 'currencyPath', 'decimals', 'detailPaths',
     'divisor', 'enabled', 'headersText', 'id', 'loginUrl', 'method', 'multiplier',
     'name', 'preset', 'secret', 'secretHeader', 'secretParam', 'symbol', 'tokenHeader',
-    'tokenPath', 'tokenPrefix', 'url', 'username',
+    'tokenPath', 'tokenPrefix', 'url', 'usageArrayPath', 'usageFields', 'usageMethod',
+    'usageScale', 'usageUrl', 'username',
   ])
   assert.equal(provider.name, '主力服务')
   assert.equal(provider.preset, 'custom')
@@ -132,6 +133,11 @@ test('validateProvider 接受完整合法草稿并补齐默认值', () => {
   assert.equal(provider.symbol, '¥')
   assert.equal(provider.decimals, 2)
   assert.equal(provider.enabled, true)
+  assert.equal(provider.usageUrl, '')
+  assert.equal(provider.usageMethod, 'GET')
+  assert.equal(provider.usageArrayPath, '')
+  assert.deepEqual(provider.usageFields, [])
+  assert.equal(provider.usageScale, false)
 })
 
 test('validateProvider 丢弃未知字段、数字字符串转数字、decimals 取整', () => {
@@ -302,6 +308,144 @@ test('validateProvider 多个错误一次性返回中文键值', () => {
   assert.equal(result.ok, false)
   assert.deepEqual(Object.keys(result.errors), ['name', 'url', 'secret', 'balancePath'])
   for (const message of Object.values(result.errors)) assert.match(message, /[\u4e00-\u9fa5]/)
+})
+
+// ---------- usage 字段（v1.1） ----------
+
+function usageOverrides (overrides = {}) {
+  return {
+    usageUrl: 'https://api.example.com/usage?start={7d}&end={now}&today={today}',
+    usageMethod: 'GET',
+    usageArrayPath: 'data',
+    usageFields: [
+      { label: '近7天 Token', path: 'token_used' },
+      { label: '近7天 请求', path: 'count' },
+    ],
+    usageScale: false,
+    ...overrides,
+  }
+}
+
+test('validateProvider 接受完整 usage 配置并原样存入', () => {
+  const result = validateProvider(validDraft(usageOverrides({
+    usageScale: 'true',
+    usageMethod: 'post',
+  })))
+  assert.equal(result.ok, true)
+  const provider = result.provider
+  assert.equal(provider.usageUrl, 'https://api.example.com/usage?start={7d}&end={now}&today={today}')
+  assert.equal(provider.usageMethod, 'POST')
+  assert.equal(provider.usageArrayPath, 'data')
+  assert.deepEqual(provider.usageFields, [
+    { label: '近7天 Token', path: 'token_used' },
+    { label: '近7天 请求', path: 'count' },
+  ])
+  assert.equal(provider.usageScale, true)
+})
+
+test('填了 usageUrl 就必须至少 1 个 usageFields', () => {
+  expectError(validDraft(usageOverrides({ usageFields: [] })), 'usageFields', /填了用量地址就要填用量字段/)
+  expectError(
+    validDraft(usageOverrides({ usageFields: [{ label: '', path: '' }] })),
+    'usageFields',
+    /填了用量地址就要填用量字段/,
+  )
+})
+
+test('usageUrl 非 http(s) 或超长时报错', () => {
+  expectError(validDraft(usageOverrides({ usageUrl: 'ftp://api.example.com/usage' })), 'usageUrl', /http:\/\/ 或 https:\/\//)
+  expectError(validDraft(usageOverrides({ usageUrl: 'api.example.com/usage' })), 'usageUrl', /http:\/\/ 或 https:\/\//)
+  expectError(validDraft(usageOverrides({ usageUrl: `https://e.com/${'a'.repeat(500)}` })), 'usageUrl', /最多 512/)
+})
+
+test('usageMethod 与 usageArrayPath 边界', () => {
+  expectError(validDraft(usageOverrides({ usageMethod: 'PUT' })), 'usageMethod', /GET 或 POST/)
+  expectError(validDraft(usageOverrides({ usageArrayPath: 'a b' })), 'usageArrayPath', /用量数组路径不合法/)
+  expectError(validDraft(usageOverrides({ usageArrayPath: 'a'.repeat(121) })), 'usageArrayPath', /最多 120/)
+  assert.equal(validateProvider(validDraft(usageOverrides({ usageArrayPath: '' }))).ok, true)
+  assert.equal(validateProvider(validDraft(usageOverrides({ usageMethod: 'post' }))).provider.usageMethod, 'POST')
+})
+
+test('usageFields 逐行校验与上限', () => {
+  const five = Array.from({ length: 5 }, (_, index) => ({ label: `字段${index}`, path: `p${index}` }))
+  expectError(validDraft(usageOverrides({ usageFields: five })), 'usageFields', /最多 4 条/)
+  expectError(
+    validDraft(usageOverrides({ usageFields: [{ label: '', path: 'token_used' }] })),
+    'usageFields',
+    /第 1 行请填标签/,
+  )
+  expectError(
+    validDraft(usageOverrides({ usageFields: [{ label: '标'.repeat(21), path: 'token_used' }] })),
+    'usageFields',
+    /第 1 行标签最多 20/,
+  )
+  expectError(
+    validDraft(usageOverrides({ usageFields: [{ label: 'Token', path: 'a b' }] })),
+    'usageFields',
+    /第 1 行路径不合法/,
+  )
+  const ok = validateProvider(validDraft(usageOverrides({
+    usageFields: [
+      { label: 'Token', path: 'token_used' },
+      { label: '', path: '' },
+      { label: '请求', path: 'count' },
+    ],
+  })))
+  assert.equal(ok.ok, true)
+  assert.deepEqual(ok.provider.usageFields, [
+    { label: 'Token', path: 'token_used' },
+    { label: '请求', path: 'count' },
+  ])
+})
+
+test('未填 usageUrl 时其余 usage 字段一律忽略并清空', () => {
+  const result = validateProvider(validDraft({
+    usageUrl: '',
+    usageMethod: 'PUT',
+    usageArrayPath: 'a b',
+    usageFields: [{ label: '', path: 'a b' }],
+    usageScale: true,
+  }))
+  assert.equal(result.ok, true)
+  assert.equal(result.provider.usageUrl, '')
+  assert.equal(result.provider.usageMethod, 'GET')
+  assert.equal(result.provider.usageArrayPath, '')
+  assert.deepEqual(result.provider.usageFields, [])
+  assert.equal(result.provider.usageScale, false)
+})
+
+test('providerToDraft 带出 usage 字段并深拷贝 usageFields', () => {
+  const provider = validateProvider(validDraft(usageOverrides())).provider
+  const draft = providerToDraft(provider)
+  assert.equal(draft.secret, '')
+  assert.equal(draft.usageUrl, provider.usageUrl)
+  assert.equal(draft.usageArrayPath, 'data')
+  assert.deepEqual(draft.usageFields, provider.usageFields)
+  assert.notEqual(draft.usageFields, provider.usageFields)
+  assert.notEqual(draft.usageFields[0], provider.usageFields[0])
+})
+
+test('配置读写保留 usage 字段，旧配置补默认值', async (t) => {
+  const home = await tempHome(t)
+  const provider = validateProvider(validDraft(usageOverrides({ usageScale: true }))).provider
+  await saveConfig({ v: 1, providers: [provider], settings: defaultSettings() }, configPath(home))
+  const loaded = await loadConfig(configPath(home))
+  assert.equal(loaded.providers[0].usageUrl, provider.usageUrl)
+  assert.equal(loaded.providers[0].usageMethod, 'GET')
+  assert.equal(loaded.providers[0].usageArrayPath, 'data')
+  assert.deepEqual(loaded.providers[0].usageFields, provider.usageFields)
+  assert.equal(loaded.providers[0].usageScale, true)
+
+  await fs.writeFile(configPath(home), JSON.stringify({
+    v: 1,
+    providers: [{ id: 'p_old12345', name: '旧', url: 'https://x.example', secret: 's', balancePath: 'data.b' }],
+    settings: {},
+  }), 'utf8')
+  const legacy = await loadConfig(configPath(home))
+  assert.equal(legacy.providers[0].usageUrl, '')
+  assert.equal(legacy.providers[0].usageMethod, 'GET')
+  assert.deepEqual(legacy.providers[0].usageFields, [])
+  assert.equal(legacy.providers[0].usageScale, false)
 })
 
 // ---------- 配置读写 ----------

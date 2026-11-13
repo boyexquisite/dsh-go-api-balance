@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createRunner, queryProvider, queryAll } from '../lib/query.js'
+import { createRunner, queryProvider, queryAll, resolveUsageUrl } from '../lib/query.js'
 
 const LOGIN_URL = 'https://api.example.com/login'
 
@@ -664,4 +664,356 @@ test('queryAll 透传 preview 与 timeoutMs', async () => {
   const runner = createRunner({ fetchImpl: impl })
   const results = await runner.queryAll([makeProvider()], { preview: true })
   assert.equal(typeof results[0].rawPreview, 'string')
+})
+
+// ---------- v1.1 用量 ----------
+
+function usageProvider (overrides = {}) {
+  return makeProvider({
+    usageUrl: 'https://api.example.com/usage?start={7d}&end={now}&today={today}',
+    usageMethod: 'GET',
+    usageArrayPath: '',
+    usageFields: [
+      { label: '近7天 Token', path: 'token_used' },
+      { label: '近7天 请求', path: 'count' },
+    ],
+    usageScale: false,
+    ...overrides,
+  })
+}
+
+function balanceAndUsageFetch (usageResponse, onUsage) {
+  return recordingFetch((url, init) => {
+    if (url.includes('/usage')) {
+      if (onUsage) onUsage(url, init)
+      return typeof usageResponse === 'function' ? usageResponse(url, init) : usageResponse
+    }
+    return responseOf(200, { data: { balance: 12 } })
+  })
+}
+
+test('resolveUsageUrl 替换 {now}/{today}/{7d}（本地时区、epoch 秒）', () => {
+  const at = new Date(2026, 10, 13, 9, 30, 0).getTime()
+  const today = new Date(2026, 10, 13, 0, 0, 0).getTime()
+  const provider = { usageUrl: 'https://x.example/u?now={now}&today={today}&week={7d}' }
+  assert.equal(
+    resolveUsageUrl(provider, at),
+    `https://x.example/u?now=${Math.floor(at / 1000)}&today=${Math.floor(today / 1000)}&week=${Math.floor((at - 7 * 86400 * 1000) / 1000)}`,
+  )
+})
+
+test('resolveUsageUrl 无占位符/无 usageUrl/now 类型兜底', () => {
+  assert.equal(resolveUsageUrl({ usageUrl: 'https://x.example/u' }, 0), 'https://x.example/u')
+  assert.equal(resolveUsageUrl({ usageUrl: '' }, 0), '')
+  assert.equal(resolveUsageUrl({}, 0), '')
+  assert.equal(resolveUsageUrl(null, 0), '')
+  const at = new Date(2026, 10, 13, 9, 30, 0)
+  const expected = String(Math.floor(at.getTime() / 1000))
+  assert.equal(resolveUsageUrl({ usageUrl: 'https://x.example/u?at={now}' }, at), `https://x.example/u?at=${expected}`)
+  assert.equal(resolveUsageUrl({ usageUrl: 'https://x.example/u?at={now}' }, () => at.getTime()), `https://x.example/u?at=${expected}`)
+})
+
+test('余额请求后追加用量请求并按数组逐项求和', async () => {
+  const at = new Date(2026, 10, 13, 9, 30, 0).getTime()
+  const impl = balanceAndUsageFetch(responseOf(200, {
+    data: [
+      { token_used: 100, count: 2 },
+      { token_used: 250, count: 3 },
+      { token_used: '50.5', count: '1' },
+    ],
+  }))
+  const runner = createRunner({ fetchImpl: impl, now: () => at })
+  const result = await runner.queryProvider(usageProvider({ usageArrayPath: 'data' }))
+  assert.equal(result.ok, true)
+  assert.equal(result.balance, 12)
+  assert.deepEqual(result.usage, [
+    { label: '近7天 Token', value: 400.5 },
+    { label: '近7天 请求', value: 6 },
+  ])
+  assert.equal(impl.calls.length, 2)
+  const usageCall = impl.calls.find((call) => call.url.includes('/usage'))
+  const parsed = new URL(usageCall.url)
+  assert.equal(parsed.searchParams.get('start'), String(Math.floor((at - 7 * 86400 * 1000) / 1000)))
+  assert.equal(parsed.searchParams.get('end'), String(Math.floor(at / 1000)))
+  assert.equal(parsed.searchParams.get('today'), String(Math.floor(new Date(2026, 10, 13).getTime() / 1000)))
+})
+
+test('用量请求复用余额鉴权（bearer / cookie）', async () => {
+  const bearerImpl = balanceAndUsageFetch(responseOf(200, { data: [{ token_used: 1 }] }))
+  const bearerRunner = createRunner({ fetchImpl: bearerImpl })
+  await bearerRunner.queryProvider(usageProvider({ usageArrayPath: 'data' }))
+  const bearerUsage = bearerImpl.calls.find((call) => call.url.includes('/usage'))
+  assert.equal(bearerUsage.init.headers.Authorization, 'Bearer sk-test-123456')
+
+  const cookieImpl = balanceAndUsageFetch(responseOf(200, { data: [{ count: 1 }] }))
+  const cookieRunner = createRunner({ fetchImpl: cookieImpl })
+  await cookieRunner.queryProvider(usageProvider({
+    authType: 'cookie',
+    secret: 'a=1; b=2',
+    usageArrayPath: 'data',
+    usageFields: [{ label: '请求', path: 'count' }],
+  }))
+  const cookieUsage = cookieImpl.calls.find((call) => call.url.includes('/usage'))
+  assert.equal(cookieUsage.init.headers.Cookie, 'a=1; b=2')
+})
+
+test('login 鉴权时用量请求复用 token 缓存，不重复登录', async () => {
+  const impl = recordingFetch((url) => {
+    if (url === LOGIN_URL) return responseOf(200, { data: { token: 'tok-1' } })
+    if (url.includes('/usage')) return responseOf(200, { data: [{ count: 3 }] })
+    return responseOf(200, { data: { balance: 5 } })
+  })
+  const runner = createRunner({ fetchImpl: impl })
+  const result = await runner.queryProvider(makeProvider({
+    authType: 'login',
+    username: 'miao',
+    loginUrl: LOGIN_URL,
+    secret: 'pw',
+    usageUrl: 'https://api.example.com/usage',
+    usageArrayPath: 'data',
+    usageFields: [{ label: '请求', path: 'count' }],
+  }))
+  assert.equal(result.ok, true)
+  assert.deepEqual(result.usage, [{ label: '请求', value: 3 }])
+  assert.equal(impl.calls.filter((call) => call.url === LOGIN_URL).length, 1)
+  const usageCall = impl.calls.find((call) => call.url.includes('/usage'))
+  assert.equal(usageCall.init.headers.Authorization, 'Bearer tok-1')
+})
+
+test('用量自动取数组：响应数组 → data 数组 → 第一个数组', async () => {
+  const cases = [
+    [[{ token_used: 7 }], 7],
+    [{ data: [{ token_used: 8 }] }, 8],
+    [{ code: 0, list: [{ token_used: 9 }] }, 9],
+  ]
+  for (const [payload, expected] of cases) {
+    const impl = balanceAndUsageFetch(responseOf(200, payload))
+    const runner = createRunner({ fetchImpl: impl })
+    const result = await runner.queryProvider(usageProvider({
+      usageArrayPath: '',
+      usageFields: [{ label: 'Token', path: 'token_used' }],
+    }))
+    assert.deepEqual(result.usage, [{ label: 'Token', value: expected }], JSON.stringify(payload))
+  }
+})
+
+test('用量没有数组可取时为空数组', async () => {
+  const impl = balanceAndUsageFetch(responseOf(200, { code: 0, message: 'ok' }))
+  const runner = createRunner({ fetchImpl: impl })
+  const result = await runner.queryProvider(usageProvider())
+  assert.equal(result.ok, true)
+  assert.deepEqual(result.usage, [])
+})
+
+test('usageArrayPath 指向对象时按单行处理', async () => {
+  const impl = balanceAndUsageFetch(responseOf(200, { data: { token_used: 42, count: 1 } }))
+  const runner = createRunner({ fetchImpl: impl })
+  const result = await runner.queryProvider(usageProvider({ usageArrayPath: 'data' }))
+  assert.deepEqual(result.usage, [
+    { label: '近7天 Token', value: 42 },
+    { label: '近7天 请求', value: 1 },
+  ])
+})
+
+test('用量字段取不到或非数字时省略该字段', async () => {
+  const impl = balanceAndUsageFetch(responseOf(200, {
+    data: [
+      { token_used: 10 },
+      { token_used: 'abc', count: 'x' },
+      { count: 4 },
+    ],
+  }))
+  const runner = createRunner({ fetchImpl: impl })
+  const result = await runner.queryProvider(usageProvider({ usageArrayPath: 'data' }))
+  assert.deepEqual(result.usage, [
+    { label: '近7天 Token', value: 10 },
+    { label: '近7天 请求', value: 4 },
+  ])
+})
+
+test('用量请求 POST 与额外请求头', async () => {
+  let usageInit = null
+  const impl = balanceAndUsageFetch(
+    responseOf(200, { data: [{ count: 2 }] }),
+    (url, init) => { usageInit = init },
+  )
+  const runner = createRunner({ fetchImpl: impl })
+  await runner.queryProvider(usageProvider({
+    usageMethod: 'POST',
+    usageArrayPath: 'data',
+    usageFields: [{ label: '请求', path: 'count' }],
+    headersText: JSON.stringify({ 'X-Extra': '1' }),
+  }))
+  assert.equal(usageInit.method, 'POST')
+  assert.equal(usageInit.headers['X-Extra'], '1')
+  assert.equal('body' in usageInit, false)
+})
+
+test('用量请求的 query 鉴权追加 secretParam', async () => {
+  const impl = balanceAndUsageFetch(responseOf(200, { data: [{ count: 2 }] }))
+  const runner = createRunner({ fetchImpl: impl })
+  await runner.queryProvider(usageProvider({
+    authType: 'query',
+    secretParam: 'key',
+    usageArrayPath: 'data',
+    usageFields: [{ label: '请求', path: 'count' }],
+  }))
+  const usageCall = impl.calls.find((call) => call.url.includes('/usage'))
+  assert.equal(new URL(usageCall.url).searchParams.get('key'), 'sk-test-123456')
+})
+
+test('余额失败但用量成功：usage 保留，error 不被污染', async () => {
+  const impl = recordingFetch((url) => {
+    if (url.includes('/usage')) return responseOf(200, { data: [{ token_used: 6 }] })
+    return responseOf(500, {})
+  })
+  const runner = createRunner({ fetchImpl: impl })
+  const result = await runner.queryProvider(usageProvider({ usageArrayPath: 'data' }))
+  assert.equal(result.ok, false)
+  assert.match(result.error, /对方服务出错/)
+  assert.deepEqual(result.usage, [{ label: '近7天 Token', value: 6 }])
+})
+
+test('余额字段解析失败但用量成功：usage 保留、error 照旧', async () => {
+  const impl = recordingFetch((url) => {
+    if (url.includes('/usage')) return responseOf(200, { data: [{ count: 2 }] })
+    return responseOf(200, { data: {} })
+  })
+  const runner = createRunner({ fetchImpl: impl })
+  const result = await runner.queryProvider(usageProvider({ usageArrayPath: 'data' }))
+  assert.equal(result.ok, false)
+  assert.equal(result.error, '解析不到余额字段，检查取值路径')
+  assert.deepEqual(result.usage, [{ label: '近7天 请求', value: 2 }])
+})
+
+test('用量失败静默：HTTP / 非 JSON / 网络异常都不写 error', async () => {
+  const failures = [
+    () => responseOf(500, {}),
+    () => responseOf(200, 'not json'),
+    () => { throw new Error('network broke') },
+  ]
+  for (const failure of failures) {
+    const impl = balanceAndUsageFetch(failure)
+    const runner = createRunner({ fetchImpl: impl })
+    const result = await runner.queryProvider(usageProvider())
+    assert.equal(result.ok, true)
+    assert.equal(result.error, null)
+    assert.deepEqual(result.usage, [])
+  }
+})
+
+test('用量请求超时静默，不影响余额结果', async () => {
+  const impl = recordingFetch((url, init) => {
+    if (!url.includes('/usage')) return responseOf(200, { data: { balance: 3 } })
+    return new Promise((resolve, reject) => {
+      init.signal.addEventListener('abort', () => {
+        reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))
+      })
+    })
+  })
+  const runner = createRunner({ fetchImpl: impl, defaultTimeoutMs: 15 })
+  const started = Date.now()
+  const result = await runner.queryProvider(usageProvider())
+  assert.equal(result.ok, true)
+  assert.equal(result.balance, 3)
+  assert.deepEqual(result.usage, [])
+  assert.ok(Date.now() - started < 2000)
+})
+
+test('用量请求被取消时静默，余额结果保留', async () => {
+  const impl = recordingFetch((url, init) => {
+    if (!url.includes('/usage')) return responseOf(200, { data: { balance: 3 } })
+    return new Promise((resolve, reject) => {
+      init.signal.addEventListener('abort', () => {
+        reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))
+      })
+    })
+  })
+  const runner = createRunner({ fetchImpl: impl })
+  const controller = new AbortController()
+  const pending = runner.queryProvider(usageProvider(), { signal: controller.signal })
+  setTimeout(() => controller.abort(), 15)
+  const result = await pending
+  assert.equal(result.ok, true)
+  assert.equal(result.balance, 3)
+  assert.deepEqual(result.usage, [])
+})
+
+test('外部 signal 预先取消时不发任何请求且 usage 为空', async () => {
+  const impl = balanceAndUsageFetch(responseOf(200, { data: [{ count: 1 }] }))
+  const runner = createRunner({ fetchImpl: impl })
+  const controller = new AbortController()
+  controller.abort()
+  const result = await runner.queryProvider(usageProvider(), { signal: controller.signal })
+  assert.equal(result.error, '已取消')
+  assert.deepEqual(result.usage, [])
+  assert.equal(impl.calls.length, 0)
+})
+
+test('没有 usageUrl 时不发额外请求，usage 为空数组', async () => {
+  const impl = recordingFetch(() => responseOf(200, { data: { balance: 1 } }))
+  const runner = createRunner({ fetchImpl: impl })
+  const result = await runner.queryProvider(makeProvider())
+  assert.equal(result.ok, true)
+  assert.deepEqual(result.usage, [])
+  assert.equal(impl.calls.length, 1)
+})
+
+test('usageScale 不影响 query 返回的原始数值', async () => {
+  const impl = balanceAndUsageFetch(responseOf(200, { data: [{ token_used: 1234567 }] }))
+  const runner = createRunner({ fetchImpl: impl })
+  const result = await runner.queryProvider(usageProvider({ usageArrayPath: 'data', usageScale: true }))
+  assert.deepEqual(result.usage, [{ label: '近7天 Token', value: 1234567 }])
+})
+
+test('用量数组路径非法（绕过校验）时静默为空', async () => {
+  const impl = balanceAndUsageFetch(responseOf(200, { data: [{ token_used: 1 }] }))
+  const runner = createRunner({ fetchImpl: impl })
+  const result = await runner.queryProvider(usageProvider({ usageArrayPath: 'a b' }))
+  assert.equal(result.ok, true)
+  assert.deepEqual(result.usage, [])
+})
+
+test('用量字段最多取 4 项', async () => {
+  const impl = balanceAndUsageFetch(responseOf(200, { data: [{ a: 1, b: 2, c: 3, d: 4, e: 5 }] }))
+  const runner = createRunner({ fetchImpl: impl })
+  const result = await runner.queryProvider(usageProvider({
+    usageArrayPath: 'data',
+    usageFields: [
+      { label: 'a', path: 'a' },
+      { label: 'b', path: 'b' },
+      { label: 'c', path: 'c' },
+      { label: 'd', path: 'd' },
+      { label: 'e', path: 'e' },
+    ],
+  }))
+  assert.equal(result.usage.length, 4)
+  assert.deepEqual(result.usage.map((item) => item.label), ['a', 'b', 'c', 'd'])
+})
+
+test('preview 与 usage 共存：rawPreview 只含余额响应', async () => {
+  const balancePayload = { data: { balance: 12 } }
+  const impl = balanceAndUsageFetch(responseOf(200, { data: [{ count: 2 }] }))
+  const runner = createRunner({ fetchImpl: impl })
+  const result = await runner.queryProvider(usageProvider({
+    usageArrayPath: 'data',
+    usageFields: [{ label: '请求', path: 'count' }],
+  }), { preview: true })
+  assert.equal(result.rawPreview, JSON.stringify(balancePayload))
+  assert.deepEqual(result.usage, [{ label: '请求', value: 2 }])
+})
+
+test('queryAll 的每个 Result 都带 usage 数组', async () => {
+  const impl = recordingFetch((url) => {
+    if (url.includes('/usage')) return responseOf(200, { data: [{ count: 2 }] })
+    return responseOf(200, { data: { balance: 1 } })
+  })
+  const runner = createRunner({ fetchImpl: impl })
+  const providers = [
+    usageProvider({ id: 'p_usage001', usageArrayPath: 'data', usageFields: [{ label: '请求', path: 'count' }] }),
+    makeProvider({ id: 'p_usage002' }),
+  ]
+  const results = await runner.queryAll(providers)
+  assert.deepEqual(results[0].usage, [{ label: '请求', value: 2 }])
+  assert.deepEqual(results[1].usage, [])
 })

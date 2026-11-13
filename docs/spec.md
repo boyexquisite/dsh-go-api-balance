@@ -255,3 +255,54 @@ export function presetOptions() // → [{ label, value }] 给 UI 选项（含 cu
 - `npm test` 全绿。
 - `node /root/.dsh/skills/dsh-go-plugin/kit/bin/check.mjs . --load` 无 error。
 - Lead 装到本机 `dsh plugin --profile web add .` 后，App 面板能打开、能加服务、能查到余额。
+
+## 11. v1.1：每家服务的「用量」（API usage）
+
+> 哥哥 2026-11-13 追加要求：余额面板里显示每家服务自己的用量（Token 数/请求数）。
+> DeepSeek 官方 API 只有余额、没有用量接口，**本期只给中转站/自定义服务加**，DeepSeek 保持余额。
+
+### 11.1 Provider 新增可选字段（全部可空；空 = 不查用量）
+
+| 字段 | 类型 | 规则 / 默认 |
+|---|---|---|
+| `usageUrl` | string | ≤512（表单 maxLength 300）；`http(s)` 开头；支持占位符 `{now}`（当前 epoch 秒）、`{today}`（本地当天 00:00 epoch 秒）、`{7d}`（now-7×86400） |
+| `usageMethod` | `'GET'\|'POST'` | 默认 `GET` |
+| `usageArrayPath` | string | ≤120（表单 40）；JSON 路径；空 = 自动（响应是数组用它，否则取 `data` 数组，再否则第一个数组） |
+| `usageFields` | `[{label, path}]` | ≤4 项；label 1–20 字；path 合法；对数组每项按 path 取数**求和**，标量则直接取 |
+| `usageScale` | boolean | 默认 false；true = 数值按 provider 的 divisor/multiplier/symbol 格式化（额度类），false = 原始计数（Token/请求数） |
+| `usageFieldsText` | 仅表单用（不落盘） | 每行 `标签=路径`，最多 4 行；保存时解析成 `usageFields` |
+| `usageHeadersText` | 暂不做（v1.1 不新增独立鉴权；用量请求复用 provider 鉴权） | — |
+
+校验：填了 `usageUrl` 就必须至少 1 个 `usageFields`，否则中文报错「填了用量地址就要填用量字段」；
+`usageUrl` 非空时按 http(s) 校验，其余不填即忽略。
+
+### 11.2 取数（`lib/query.js`）
+
+- `queryProvider` 在余额请求完成后（余额成功或失败都行）若 `usageUrl` 非空，再发一次用量请求：
+  - URL 占位符替换（本地时区）；鉴权与余额请求相同（Bearer/Header/Query/Cookie/Basic/Login token 缓存复用）。
+  - JSON 解析后按 §11.1 取数组、逐字段求和；取不到/非数字 → 该字段省略。
+  - 用量失败（HTTP/网络/解析）**不污染 Result**：`usage = []`，不写 error、不上抛；超时/取消同样静默。
+  - 每次请求都独立超时（同一 timeoutMs）。
+- Result 新增 `usage: [{ label, value }]`（value 有限数字；≤4 项；失败为空数组）。
+- 新增导出 `resolveUsageUrl(provider, now)`（纯函数，测试用）：替换占位符。
+
+### 11.3 模板（`lib/presets.js`）
+
+- `newapi` 追加：
+  - `usageUrl = '<base>/api/data/self?start_timestamp={7d}&end_timestamp={now}&default_time=day'`
+  - `usageArrayPath = 'data'`
+  - `usageFields = [{label:'近7天 Token', path:'token_used'}, {label:'近7天 请求', path:'count'}]`
+  - `usageScale = false`
+  - 实测 STA1N：34 条桶求和 = Token 1554060713、请求 6837（2026-11-13 验证）。
+- `deepseek` / `custom`：不填 usage（空）。
+
+### 11.4 展示（`lib/view.js` / `lib/format.js` / `lib/index.js`）
+
+- 列表行副标题：`成功 · 09:25 · 近7天 Token 1.55亿 · 近7天 请求 6,837`——把 `result.usage` 的 `text` 用 ` · ` 拼在状态/时间后面，最多 2 项、整行 ≤ 60 字（超出截断加 `…`）；没有 usage 时保持现状。
+- 用量数值格式（`lib/format.js` 新增 `formatUsage(provider, field)`）：
+  - `usageScale=true` → `formatAmount(provider, value)`；
+  - 否则 → 原始计数千分位；≥1e8 用「亿」、≥1e4 用「万」（英文用 B/M/K），保留 1 位小数。
+- 表单新增第 4 个页签「用量」：`usageUrl`、`usageArrayPath`、`usageFieldsText`（multiline）、`usageScale`（toggle）；不改变其它页签。
+- 表单 maxLength 相应收紧（保证最坏提交 <4096B）：`url 400`、`loginUrl 300`、`secret 600`、`username 80`、`tokenPath 80`、`tokenHeader 48`、`tokenPrefix 24`、`secretHeader 48`、`secretParam 48`、`balancePath 100`、`currencyPath 80`、`headersText 200`、`bodyText 200`、`detailText 300`、`usageUrl 300`、`usageArrayPath 40`、`usageFieldsText 120`；单测按最坏情况填满断言 <4096。
+- `lib/index.js` 的 `save`：`usageFieldsText` 解析（每行 `标签=路径`，≤4）写入 `usageFields`；其余字段按现有逻辑透传。
+- 详情区块不变（仍只放 `result.details`）；错误/预算/v1 降级不变。

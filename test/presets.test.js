@@ -137,3 +137,57 @@ test('每次调用返回新对象，修改草稿不影响下一次', () => {
   assert.equal(b.name, 'DeepSeek')
   assert.notEqual(presetDraft('newapi').detailPaths, presetDraft('newapi').detailPaths)
 })
+
+// ---------- v1.1 用量 ----------
+
+test('deepseek / custom 预设不填用量', () => {
+  for (const id of ['deepseek', 'custom']) {
+    const draft = presetDraft(id)
+    assert.equal(draft.usageUrl, '')
+    assert.equal(draft.usageMethod, 'GET')
+    assert.equal(draft.usageArrayPath, '')
+    assert.deepEqual(draft.usageFields, [])
+    assert.equal(draft.usageScale, false)
+  }
+})
+
+test('newapi 预设按 spec §11.3 填用量查询', () => {
+  const draft = presetDraft('newapi', { base: 'https://relay.example.com/' })
+  assert.equal(
+    draft.usageUrl,
+    'https://relay.example.com/api/data/self?start_timestamp={7d}&end_timestamp={now}&default_time=day',
+  )
+  assert.equal(draft.usageMethod, 'GET')
+  assert.equal(draft.usageArrayPath, 'data')
+  assert.deepEqual(draft.usageFields, [
+    { label: '近7天 Token', path: 'token_used' },
+    { label: '近7天 请求', path: 'count' },
+  ])
+  assert.equal(draft.usageScale, false)
+})
+
+test('newapi 预设 base 为空时用量地址也留空', () => {
+  const draft = presetDraft('newapi')
+  assert.equal(draft.url, '')
+  assert.equal(draft.usageUrl, '')
+})
+
+test('newapi 预设带用量字段可通过 validateProvider 校验', () => {
+  const draft = {
+    ...presetDraft('newapi', { base: 'https://relay.example.com' }),
+    secret: 'sk-test-123456',
+  }
+  const result = validateProvider(draft)
+  assert.equal(result.ok, true)
+  assert.equal(result.provider.usageArrayPath, 'data')
+  assert.equal(result.provider.usageFields.length, 2)
+  assert.equal(result.provider.usageScale, false)
+})
+
+test('newapi 用量草稿每次新建且数组可安全修改', () => {
+  const a = presetDraft('newapi', { base: 'https://relay.example.com' })
+  a.usageFields[0].label = '改了'
+  const b = presetDraft('newapi', { base: 'https://relay.example.com' })
+  assert.equal(b.usageFields[0].label, '近7天 Token')
+  assert.notEqual(a.usageFields, b.usageFields)
+})
