@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createRunner, queryProvider, queryAll, resolveUsageUrl } from '../lib/query.js'
+import { createRunner, queryProvider, queryAll, resolveUsageUrl, resolveUnit } from '../lib/query.js'
 
 const LOGIN_URL = 'https://api.example.com/login'
 
@@ -1016,4 +1016,367 @@ test('queryAll 的每个 Result 都带 usage 数组', async () => {
   const results = await runner.queryAll(providers)
   assert.deepEqual(results[0].usage, [{ label: '请求', value: 2 }])
   assert.deepEqual(results[1].usage, [])
+})
+
+// ---------- v1.7 自动站点货币 ----------
+
+const UNIT_NOW = 1700000000000
+
+function statusBody (extra = {}) {
+  return {
+    data: {
+      display_in_currency: true,
+      quota_display_type: 'USD',
+      quota_per_unit: 500000,
+      usd_exchange_rate: 7.2,
+      custom_currency_symbol: '🍪',
+      custom_currency_exchange_rate: 3,
+      ...extra,
+    },
+  }
+}
+
+function statusResponse (body) {
+  const text = typeof body === 'string' ? body : JSON.stringify(body)
+  return { status: 200, ok: true, text: async () => text }
+}
+
+function statusOnlyFetch (body) {
+  const calls = []
+  const impl = async (url, init = {}) => {
+    calls.push({ url, init })
+    return statusResponse(body)
+  }
+  impl.calls = calls
+  return impl
+}
+
+test('resolveUnit USD：qpu 作除数、$ 美元', async () => {
+  const impl = statusOnlyFetch(statusBody({ quota_display_type: 'USD' }))
+  const unit = await resolveUnit(
+    { url: 'https://unit-usd.example/api/user/self' },
+    { fetchImpl: impl },
+  )
+  assert.deepEqual(unit, { divisor: 500000, multiplier: 1, symbol: '$', decimals: 2 })
+  assert.equal(impl.calls.length, 1)
+  assert.equal(impl.calls[0].url, 'https://unit-usd.example/api/status')
+  assert.equal(impl.calls[0].init.method, 'GET')
+  assert.equal(impl.calls[0].init.headers.Accept, 'application/json')
+  assert.equal(impl.calls[0].init.headers.Authorization, undefined)
+})
+
+test('resolveUnit CNY：usd_exchange_rate 作乘数、¥', async () => {
+  const impl = statusOnlyFetch(statusBody({ quota_display_type: 'CNY', usd_exchange_rate: 7.2 }))
+  const unit = await resolveUnit(
+    { url: 'https://unit-cny.example/api/user/self' },
+    { fetchImpl: impl },
+  )
+  assert.deepEqual(unit, { divisor: 500000, multiplier: 7.2, symbol: '¥', decimals: 2 })
+})
+
+test('resolveUnit CUSTOM：自定义符号与汇率（🍪）', async () => {
+  const impl = statusOnlyFetch(statusBody({
+    quota_display_type: 'CUSTOM',
+    quota_per_unit: 200000,
+    custom_currency_symbol: '🍪',
+    custom_currency_exchange_rate: 2.5,
+  }))
+  const unit = await resolveUnit(
+    { url: 'https://unit-custom.example/api/user/self' },
+    { fetchImpl: impl },
+  )
+  assert.deepEqual(unit, { divisor: 200000, multiplier: 2.5, symbol: '🍪', decimals: 2 })
+})
+
+test('resolveUnit TOKENS：不换算、无符号', async () => {
+  const impl = statusOnlyFetch(statusBody({ quota_display_type: 'TOKENS' }))
+  const unit = await resolveUnit(
+    { url: 'https://unit-tokens.example/api/user/self' },
+    { fetchImpl: impl },
+  )
+  assert.deepEqual(unit, { divisor: 1, multiplier: 1, symbol: '', decimals: 0 })
+})
+
+test('resolveUnit display_in_currency=false 按 TOKENS 处理', async () => {
+  const impl = statusOnlyFetch(statusBody({ display_in_currency: false, quota_display_type: 'USD' }))
+  const unit = await resolveUnit(
+    { url: 'https://unit-tokens-false.example/api/user/self' },
+    { fetchImpl: impl },
+  )
+  assert.deepEqual(unit, { divisor: 1, multiplier: 1, symbol: '', decimals: 0 })
+})
+
+test('resolveUnit 缺字段回退：qpu 500000、汇率 1、空符号、支持根级 data', async () => {
+  const missingQpu = statusOnlyFetch({ display_in_currency: true, quota_display_type: 'CUSTOM' })
+  assert.deepEqual(
+    await resolveUnit({ url: 'https://unit-missing-qpu.example/api/user/self' }, { fetchImpl: missingQpu }),
+    { divisor: 500000, multiplier: 1, symbol: '', decimals: 2 },
+  )
+
+  const noRate = statusOnlyFetch({ display_in_currency: true, quota_display_type: 'CNY', quota_per_unit: 'abc' })
+  assert.deepEqual(
+    await resolveUnit({ url: 'https://unit-missing-rate.example/api/user/self' }, { fetchImpl: noRate }),
+    { divisor: 500000, multiplier: 1, symbol: '¥', decimals: 2 },
+  )
+
+  const customFallback = statusOnlyFetch({ display_in_currency: true, quota_display_type: 'CUSTOM', custom_currency_symbol: '🍪' })
+  assert.deepEqual(
+    await resolveUnit({ url: 'https://unit-custom-fallback.example/api/user/self' }, { fetchImpl: customFallback }),
+    { divisor: 500000, multiplier: 1, symbol: '🍪', decimals: 2 },
+  )
+})
+
+test('resolveUnit 未知 display type 返回 null', async () => {
+  const impl = statusOnlyFetch(statusBody({ quota_display_type: 'EUR' }))
+  assert.equal(
+    await resolveUnit({ url: 'https://unit-unknown.example/api/user/self' }, { fetchImpl: impl }),
+    null,
+  )
+  const missingType = statusOnlyFetch({ display_in_currency: true })
+  assert.equal(
+    await resolveUnit({ url: 'https://unit-null-type.example/api/user/self' }, { fetchImpl: missingType }),
+    null,
+  )
+})
+
+test('resolveUnit 站点根：无 /api/user/self 时取 origin', async () => {
+  const impl = statusOnlyFetch(statusBody())
+  await resolveUnit({ url: 'https://unit-nosuffix.example/some/path' }, { fetchImpl: impl })
+  assert.equal(impl.calls[0].url, 'https://unit-nosuffix.example/api/status')
+
+  const trailing = statusOnlyFetch(statusBody())
+  await resolveUnit({ url: 'https://unit-trailing.example/api/user/self/' }, { fetchImpl: trailing })
+  assert.equal(trailing.calls[0].url, 'https://unit-trailing.example/api/status')
+})
+
+test('resolveUnit 失败静默：HTTP / 非 JSON / 网络异常 / 非法 provider', async () => {
+  const http500 = async () => ({ status: 500, ok: false, text: async () => '{}' })
+  assert.equal(await resolveUnit({ url: 'https://unit-500.example/api/user/self' }, { fetchImpl: http500, now: () => UNIT_NOW }), null)
+
+  const notJson = async () => statusResponse('<html>')
+  assert.equal(await resolveUnit({ url: 'https://unit-notjson.example/api/user/self' }, { fetchImpl: notJson, now: () => UNIT_NOW }), null)
+
+  const network = async () => { throw new TypeError('fetch failed') }
+  assert.equal(await resolveUnit({ url: 'https://unit-network.example/api/user/self' }, { fetchImpl: network, now: () => UNIT_NOW }), null)
+
+  assert.equal(await resolveUnit(null, { fetchImpl: http500 }), null)
+  assert.equal(await resolveUnit({ url: '' }, { fetchImpl: http500 }), null)
+})
+
+test('resolveUnit 超时/取消静默且不留 timer', async () => {
+  const hanging = (url, init) => new Promise((resolve, reject) => {
+    init.signal.addEventListener('abort', () => {
+      reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))
+    })
+  })
+  const started = Date.now()
+  assert.equal(
+    await resolveUnit({ url: 'https://unit-timeout.example/api/user/self' }, { fetchImpl: hanging, timeoutMs: 10 }),
+    null,
+  )
+  assert.ok(Date.now() - started < 2000)
+
+  const neverCalled = statusOnlyFetch(statusBody())
+  const controller = new AbortController()
+  controller.abort()
+  assert.equal(
+    await resolveUnit(
+      { url: 'https://unit-cancel.example/api/user/self' },
+      { fetchImpl: neverCalled, signal: controller.signal },
+    ),
+    null,
+  )
+  assert.equal(neverCalled.calls.length, 0)
+})
+
+test('resolveUnit 同站点根 10 分钟内只请求一次，过期后重取', async () => {
+  let calls = 0
+  const impl = async () => {
+    calls += 1
+    return statusResponse(statusBody({ quota_display_type: 'USD' }))
+  }
+  const provider = { url: 'https://unit-cache.example/api/user/self' }
+  let nowMs = UNIT_NOW
+  const now = () => nowMs
+  const expected = { divisor: 500000, multiplier: 1, symbol: '$', decimals: 2 }
+  assert.deepEqual(await resolveUnit(provider, { fetchImpl: impl, now }), expected)
+  nowMs += 9 * 60 * 1000
+  assert.deepEqual(await resolveUnit(provider, { fetchImpl: impl, now }), expected)
+  assert.equal(calls, 1)
+  nowMs += 2 * 60 * 1000
+  assert.deepEqual(await resolveUnit(provider, { fetchImpl: impl, now }), expected)
+  assert.equal(calls, 2)
+})
+
+test('resolveUnit 失败结果不缓存', async () => {
+  let calls = 0
+  const impl = async () => {
+    calls += 1
+    return calls === 1
+      ? { status: 500, ok: false, text: async () => '{}' }
+      : statusResponse(statusBody())
+  }
+  const provider = { url: 'https://unit-nocache.example/api/user/self' }
+  const now = () => UNIT_NOW
+  assert.equal(await resolveUnit(provider, { fetchImpl: impl, now }), null)
+  assert.deepEqual(
+    await resolveUnit(provider, { fetchImpl: impl, now }),
+    { divisor: 500000, multiplier: 1, symbol: '$', decimals: 2 },
+  )
+  assert.equal(calls, 2)
+})
+
+function autoUnitNewApiProvider (overrides = {}) {
+  return makeProvider({
+    preset: 'newapi',
+    autoUnit: true,
+    url: 'https://unit-qp.example/api/user/self',
+    ...overrides,
+  })
+}
+
+function unitAwareFetch (status, calls) {
+  const impl = async (url, init = {}) => {
+    calls.push({ url, init })
+    if (url.includes('/api/status')) {
+      return typeof status === 'function' ? status(url, init) : statusResponse(status)
+    }
+    return responseOf(200, { data: { balance: 7 } })
+  }
+  return impl
+}
+
+test('queryProvider：newapi + autoUnit 附 Result.unit，balance 保持原始值', async () => {
+  const calls = []
+  const impl = unitAwareFetch(statusBody({
+    quota_display_type: 'CUSTOM',
+    custom_currency_symbol: '🍪',
+    custom_currency_exchange_rate: 2.5,
+  }), calls)
+  const runner = createRunner({ fetchImpl: impl, now: () => UNIT_NOW })
+  const result = await runner.queryProvider(autoUnitNewApiProvider())
+  assert.equal(result.ok, true)
+  assert.equal(result.balance, 7)
+  assert.equal(result.error, null)
+  assert.deepEqual(result.unit, { divisor: 500000, multiplier: 2.5, symbol: '🍪', decimals: 2 })
+  assert.equal(calls.length, 2)
+  const statusCall = calls.find((call) => call.url.includes('/api/status'))
+  assert.equal(statusCall.url, 'https://unit-qp.example/api/status')
+  assert.equal(statusCall.init.headers.Authorization, undefined)
+})
+
+test('queryProvider：autoUnit=false 或非 newapi 不请求 /api/status，unit 为 null', async () => {
+  for (const provider of [
+    autoUnitNewApiProvider({ autoUnit: false }),
+    autoUnitNewApiProvider({ preset: 'custom' }),
+    autoUnitNewApiProvider({ preset: 'deepseek' }),
+  ]) {
+    const calls = []
+    const impl = unitAwareFetch(statusBody(), calls)
+    const runner = createRunner({ fetchImpl: impl, now: () => UNIT_NOW })
+    const result = await runner.queryProvider(provider)
+    assert.equal(result.unit, null)
+    assert.equal(calls.some((call) => call.url.includes('/api/status')), false)
+  }
+})
+
+test('queryProvider：status 失败静默，不影响余额/错误', async () => {
+  const calls = []
+  const impl = unitAwareFetch(() => ({ status: 500, ok: false, text: async () => '{}' }), calls)
+  const runner = createRunner({ fetchImpl: impl, now: () => UNIT_NOW })
+  const result = await runner.queryProvider(autoUnitNewApiProvider())
+  assert.equal(result.ok, true)
+  assert.equal(result.balance, 7)
+  assert.equal(result.error, null)
+  assert.equal(result.unit, null)
+})
+
+test('queryProvider：余额失败时 unit 仍附上，error 不被污染', async () => {
+  const calls = []
+  const impl = async (url, init = {}) => {
+    calls.push({ url, init })
+    if (url.includes('/api/status')) return statusResponse(statusBody({ quota_display_type: 'USD' }))
+    return responseOf(500, {})
+  }
+  const runner = createRunner({ fetchImpl: impl, now: () => UNIT_NOW })
+  const result = await runner.queryProvider(autoUnitNewApiProvider())
+  assert.equal(result.ok, false)
+  assert.match(result.error, /对方服务出错/)
+  assert.deepEqual(result.unit, { divisor: 500000, multiplier: 1, symbol: '$', decimals: 2 })
+})
+
+test('queryProvider：同一个 runner 内 status 结果缓存 10 分钟', async () => {
+  const calls = []
+  const impl = unitAwareFetch(statusBody(), calls)
+  let nowMs = UNIT_NOW
+  const runner = createRunner({ fetchImpl: impl, now: () => nowMs })
+  const provider = autoUnitNewApiProvider()
+  const first = await runner.queryProvider(provider)
+  nowMs += 5 * 60 * 1000
+  const second = await runner.queryProvider(provider)
+  assert.deepEqual(first.unit, second.unit)
+  assert.equal(calls.filter((call) => call.url.includes('/api/status')).length, 1)
+})
+
+test('queryProvider：status 超时静默，余额照常返回', async () => {
+  const calls = []
+  const impl = async (url, init = {}) => {
+    calls.push({ url, init })
+    if (url.includes('/api/status')) {
+      return new Promise((resolve, reject) => {
+        init.signal.addEventListener('abort', () => {
+          reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))
+        })
+      })
+    }
+    return responseOf(200, { data: { balance: 7 } })
+  }
+  const runner = createRunner({ fetchImpl: impl, now: () => UNIT_NOW, defaultTimeoutMs: 15 })
+  const started = Date.now()
+  const result = await runner.queryProvider(autoUnitNewApiProvider())
+  assert.equal(result.ok, true)
+  assert.equal(result.balance, 7)
+  assert.equal(result.unit, null)
+  assert.ok(Date.now() - started < 2000)
+})
+
+test('queryProvider：status 阶段被取消时 unit 静默，余额记为已取消', async () => {
+  const calls = []
+  const impl = async (url, init = {}) => {
+    calls.push({ url, init })
+    return new Promise((resolve, reject) => {
+      init.signal.addEventListener('abort', () => {
+        reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))
+      })
+    })
+  }
+  const runner = createRunner({ fetchImpl: impl, now: () => UNIT_NOW })
+  const controller = new AbortController()
+  const pending = runner.queryProvider(autoUnitNewApiProvider(), { signal: controller.signal })
+  setTimeout(() => controller.abort(), 15)
+  const result = await pending
+  assert.equal(result.ok, false)
+  assert.equal(result.error, '已取消')
+  assert.equal(result.unit, null)
+  assert.equal(calls.length, 1)
+})
+
+test('queryProvider：非 autoUnit 的 Result.unit 恒为 null', async () => {
+  const impl = recordingFetch(() => responseOf(200, { data: { balance: 1 } }))
+  const runner = createRunner({ fetchImpl: impl })
+  const result = await runner.queryProvider(makeProvider())
+  assert.equal(result.unit, null)
+  assert.equal(result.ok, true)
+})
+
+test('queryAll：autoUnit newapi 的 Result 各自带 unit', async () => {
+  const calls = []
+  const impl = unitAwareFetch(statusBody({ quota_display_type: 'TOKENS' }), calls)
+  const runner = createRunner({ fetchImpl: impl, now: () => UNIT_NOW })
+  const results = await runner.queryAll([
+    autoUnitNewApiProvider({ id: 'p_unit0001' }),
+    autoUnitNewApiProvider({ id: 'p_unit0002', autoUnit: false }),
+  ])
+  assert.deepEqual(results[0].unit, { divisor: 1, multiplier: 1, symbol: '', decimals: 0 })
+  assert.equal(results[1].unit, null)
 })

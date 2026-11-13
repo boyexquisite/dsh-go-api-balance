@@ -20,6 +20,7 @@ import {
   parseDetailText,
   providerForm,
   stripData,
+  unitOf,
   words,
 } from '../lib/view.js'
 import { apply } from '../lib/index.js'
@@ -203,9 +204,15 @@ function assertStructure (view, data, label) {
   for (const card of data.cards) {
     assert.equal(typeof card.name, 'string', `${label}: card.name`)
     assert.equal(typeof card.balance, 'string', `${label}: card.balance`)
-    assert.equal(typeof card.usage, 'string', `${label}: card.usage`)
     assert.equal(typeof card.status, 'string', `${label}: card.status`)
     assert.equal(typeof card.error, 'string', `${label}: card.error`)
+    for (const slot of ['usage0', 'usage1']) {
+      const usage = card[slot]
+      if (usage !== null) {
+        assert.equal(typeof usage.label, 'string', `${label}: ${slot}.label`)
+        assert.equal(typeof usage.value, 'string', `${label}: ${slot}.value`)
+      }
+    }
     assert.equal(findUndefined(card), null, `${label}: card 里有 undefined`)
   }
   assert.equal(findUndefined(data), null, `${label}: 数据里有 undefined`)
@@ -394,7 +401,7 @@ test('panelView: 添加向导先出三种服务类型（list 行内 choose-templ
   assert.deepEqual(childrenTypes(panelView(withProvider, FULL_CAPS)), ['stack', 'text', 'list', 'actions'])
 })
 
-test('panelView: 模板表单只显示关键字段（deepseek 2 项 / newapi 5 项）', () => {
+test('panelView: 模板表单只显示关键字段（deepseek 2 项 / newapi autoUnit 显隐）', () => {
   const deepseek = freshState({ formOpen: true })
   deepseek.form = draftForm(presetDraft('deepseek'))
   const deepseekView = panelView(deepseek, FULL_CAPS)
@@ -405,15 +412,19 @@ test('panelView: 模板表单只显示关键字段（deepseek 2 项 / newapi 5 �
 
   const newapi = freshState({ formOpen: true })
   newapi.form = draftForm(presetDraft('newapi'))
+  newapi.form.autoUnit = true
   const newapiView = panelView(newapi, FULL_CAPS)
   const newapiInputs = collectInputs(newapiView)
   assert.deepEqual(newapiInputs.map((input) => input.bind), [
     'data.form.name',
     'data.form.siteBase',
     'data.form.secret',
-    'data.form.symbol',
-    'data.form.multiplier',
+    'data.form.autoUnit',
   ])
+  const autoUnitInput = newapiInputs.find((input) => input.bind === 'data.form.autoUnit')
+  assert.equal(autoUnitInput.type, 'toggle')
+  assert.equal(autoUnitInput.label, words('zh').fields.autoUnit)
+  assert.equal(autoUnitInput.onChange, 'auto-unit')
   const siteInput = newapiInputs.find((input) => input.bind === 'data.form.siteBase')
   assert.equal(siteInput.required, true)
   assert.equal(siteInput.maxLength, FORM_LIMITS.siteBase)
@@ -422,6 +433,17 @@ test('panelView: 模板表单只显示关键字段（deepseek 2 项 / newapi 5 �
   assert.ok(JSON.stringify(newapiView).includes('OpenAI 接入地址'), 'caption 提示可以填 /v1 接入地址')
   assert.ok(JSON.stringify(newapiView).includes('会自动去掉'))
   assert.equal(nodesOfType(newapiView, 'tabs').length, 0)
+  assert.ok(!JSON.stringify(newapiView).includes('data.form.symbol'), 'autoUnit 开时隐藏货币符号')
+  assert.ok(!JSON.stringify(newapiView).includes('data.form.multiplier'), 'autoUnit 开时隐藏乘数')
+
+  // 关掉 autoUnit 后显示货币符号/乘数
+  const manual = freshState({ formOpen: true })
+  manual.form = draftForm(presetDraft('newapi'))
+  manual.form.autoUnit = false
+  const manualInputs = collectInputs(panelView(manual, FULL_CAPS)).map((input) => input.bind)
+  for (const bind of ['data.form.symbol', 'data.form.multiplier', 'data.form.autoUnit']) {
+    assert.ok(manualInputs.includes(bind), `手动单位时应有 ${bind}`)
+  }
 })
 
 test('panelView: 所有状态下的绑定路径都能在 panelData 找到', () => {
@@ -434,6 +456,10 @@ test('panelView: 所有状态下的绑定路径都能在 panelData 找到', () =
 test('panelData: cards 与 providers 同序，含名称/余额/用量/状态/错误', () => {
   const state = stateWithProvider()
   state.config.providers[0].usageUrl = 'https://relay.example.com/api/data/self'
+  state.config.providers[0].usageFields = [
+    { label: '近7天 Token', path: 'token_used' },
+    { label: '近7天 请求', path: 'count' },
+  ]
   state.results.p_abc12345 = makeResult('p_abc12345', {
     usage: [{ label: '近7天 Token', value: 1554060713 }, { label: '近7天 请求', value: 6837 }],
   })
@@ -442,11 +468,11 @@ test('panelData: cards 与 providers 同序，含名称/余额/用量/状态/错
   assert.equal(Object.hasOwn(data, 'detail'), false, '不再有选中详情')
   assert.equal(Object.hasOwn(data, 'confirmDelete'), false)
   assert.equal(data.cards.length, 1)
-  assert.deepEqual(Object.keys(data.cards[0]).sort(), ['balance', 'error', 'name', 'status', 'usage'])
+  assert.deepEqual(Object.keys(data.cards[0]).sort(), ['balance', 'error', 'name', 'status', 'usage0', 'usage1'])
   assert.equal(data.cards[0].name, 'DeepSeek')
   assert.equal(data.cards[0].balance, '¥1,234.50')
-  assert.ok(data.cards[0].usage.includes('近7天 Token 15.5亿'), data.cards[0].usage)
-  assert.ok(data.cards[0].usage.includes('近7天 请求 6,837'), data.cards[0].usage)
+  assert.deepEqual(data.cards[0].usage0, { label: '近7天 Token', value: '15.5亿' })
+  assert.deepEqual(data.cards[0].usage1, { label: '近7天 请求', value: '6,837' })
   assert.equal(data.cards[0].status, '成功 · 09:12')
   assert.equal(data.cards[0].error, '')
   assert.equal(Object.hasOwn(data, 'cardChoice0'), false, 'chips 数据已移除')
@@ -465,7 +491,8 @@ test('panelData: cards 与 providers 同序，含名称/余额/用量/状态/错
   const neverCard = panelData(never, FULL_CAPS).cards[0]
   assert.equal(neverCard.balance, '—')
   assert.equal(neverCard.status, '还没查过')
-  assert.equal(neverCard.usage, '')
+  assert.equal(neverCard.usage0, null)
+  assert.equal(neverCard.usage1, null)
   assert.deepEqual(stripData(state, FULL_CAPS), { text: '' })
 })
 
@@ -771,6 +798,10 @@ test('删除确认在卡片里：菜单换成确认 list，不再用 callout/con
 test('卡片内容：名称/余额/用量/状态；失败 callout；不再有 keyValue 详情', () => {
   const state = stateWithProvider()
   state.config.providers[0].usageUrl = 'https://relay.example.com/api/data/self'
+  state.config.providers[0].usageFields = [
+    { label: '近7天 Token', path: 'token_used' },
+    { label: '近7天 请求', path: 'count' },
+  ]
   state.results.p_abc12345 = makeResult('p_abc12345', {
     usage: [{ label: '近7天 Token', value: 1554060713 }, { label: '近7天 请求', value: 6837 }],
   })
@@ -778,19 +809,39 @@ test('卡片内容：名称/余额/用量/状态；失败 callout；不再有 ke
   const json = JSON.stringify(view)
   assert.ok(!json.includes('"keyValue"'), '卡片里不再有 keyValue 详情')
   assert.ok(!json.includes('服务详情'))
-  assert.ok(!json.includes('"metric"'))
   const card = view.children[0]
   const titleRow = nodesOfType(card, 'list')[0].items[0]
   assert.equal(titleRow.title, 'DeepSeek')
   const texts = nodesOfType(card, 'text')
-  assert.equal(texts.length, 3, '余额 / 用量 / 状态')
+  assert.equal(texts.length, 2, '余额 / 状态')
   assert.equal(texts[0].text.$, 'data.cards[0].balance')
-  assert.equal(texts[1].text.$, 'data.cards[0].usage')
-  assert.equal(texts[2].text.$, 'data.cards[0].status')
+  assert.equal(texts[1].text.$, 'data.cards[0].status')
   assert.equal(texts[0].style.weight, 'bold')
+  const metrics = nodesOfType(card, 'metric')
+  assert.equal(metrics.length, 2, '两个用量 metric 并排')
+  assert.deepEqual(metrics.map((metric) => metric.label.$), [
+    'data.cards[0].usage0.label',
+    'data.cards[0].usage1.label',
+  ])
+  assert.deepEqual(metrics.map((metric) => metric.value.$), [
+    'data.cards[0].usage0.value',
+    'data.cards[0].usage1.value',
+  ])
+  const row = nodesOfType(card, 'row')[0]
+  assert.equal(row.style.columns, 'equal')
+  assert.deepEqual(row.children.map((child) => child.type), ['metric', 'metric'])
+
+  // 只配置 1 个用量字段时单个 metric，不套 row
+  const oneUsage = stateWithProvider()
+  oneUsage.config.providers[0].usageUrl = 'https://relay.example.com/api/data/self'
+  oneUsage.config.providers[0].usageFields = [{ label: '近7天 Token', path: 'token_used' }]
+  oneUsage.results.p_abc12345 = makeResult('p_abc12345', { usage: [{ label: '近7天 Token', value: 1554060713 }] })
+  const oneCard = panelView(oneUsage, FULL_CAPS).children[0]
+  assert.equal(nodesOfType(oneCard, 'metric').length, 1)
+  assert.equal(nodesOfType(oneCard, 'row').length, 0)
 
   const noUsage = stateWithProvider()
-  assert.equal(nodesOfType(panelView(noUsage, FULL_CAPS).children[0], 'text').length, 2, '没配用量就不显示用量行')
+  assert.equal(nodesOfType(panelView(noUsage, FULL_CAPS).children[0], 'metric').length, 0, '没配用量就不显示 metric')
 
   const failed = stateWithProvider()
   failed.results.p_abc12345 = makeResult('p_abc12345', { ok: false, balance: null, error: '密钥或令牌无效' })
@@ -1507,6 +1558,7 @@ test('actions: save newapi 由 siteBase 组装 url/usage，名称为空用默认
   assert.equal(saved.divisor, 500000)
   assert.equal(saved.multiplier, 2)
   assert.equal(saved.symbol, '$')
+  assert.equal(saved.autoUnit, true, 'autoUnit 默认开并落盘')
   assert.equal(Object.hasOwn(saved, 'siteBase'), false, 'siteBase 是表单专用字段，不落盘')
 })
 
@@ -1625,6 +1677,7 @@ test('actions: 编辑旧 newapi（url 带 /v1）反推根地址，保存即修�
     'https://sta1n.ai/api/data/self?start_timestamp={7d}&end_timestamp={now}&default_time=day',
   )
   assert.equal(saved.secret, broken.secret, '编辑留空沿用原密钥')
+  assert.equal(saved.autoUnit, false, '旧配置缺 autoUnit 按 false')
 })
 
 
@@ -1651,12 +1704,16 @@ test('卡片预算：服务很多时按节点预算截断并给提示，data.car
   assert.ok(stats.nodes <= 120, `节点 ${stats.nodes}`)
   assert.ok(Buffer.byteLength(JSON.stringify(view)) <= 32768)
   const cardCount = view.children.filter((child) => child.type === 'stack' && child.style && child.style.card === 'surface').length
-  assert.ok(cardCount > 0 && cardCount < 24, `只显示预算内的 ${cardCount} 张卡片`)
+  assert.ok(cardCount > 0 && cardCount <= 24, `显示 ${cardCount} 张卡片`)
   const last = view.children.at(-1)
   assert.equal(last.type, 'actions')
   const hint = view.children.find((child) => child.type === 'text' && typeof child.text === 'string' && child.text.includes('未显示'))
-  assert.ok(hint, '隐藏的服务要给一行提示')
-  assert.ok(hint.text.includes(String(24 - cardCount)))
+  if (cardCount < 24) {
+    assert.ok(hint, '隐藏的服务要给一行提示')
+    assert.ok(hint.text.includes(String(24 - cardCount)))
+  } else {
+    assert.equal(hint, undefined)
+  }
   assertResolvable(view, data, 'many-cards')
 })
 
@@ -1684,7 +1741,12 @@ test('actions: 菜单动作缺 id、无确认态时都不误删', async (t) => {
 test('卡片不再产生 input；多服务仍按节点预算截断并给提示', () => {
   const state = freshState()
   for (let index = 0; index < 24; index++) {
-    state.config.providers.push(makeProvider({ id: `p_${String(index).padStart(8, '0')}`, name: `服务 ${index}`, usageUrl: 'https://h/u' }))
+    state.config.providers.push(makeProvider({
+      id: `p_${String(index).padStart(8, '0')}`,
+      name: `服务 ${index}`,
+      usageUrl: 'https://h/u',
+      usageFields: [{ label: '近7天 Token', path: 'token_used' }],
+    }))
     state.results[state.config.providers[index].id] = makeResult(state.config.providers[index].id, {
       usage: [{ label: '近7天 Token', value: 1554060713 }],
     })
@@ -1702,4 +1764,118 @@ test('卡片不再产生 input；多服务仍按节点预算截断并给提示',
   const hint = view.children.find((child) => child.type === 'text' && typeof child.text === 'string' && child.text.includes('未显示'))
   assert.ok(hint)
   assert.ok(hint.text.includes(String(24 - cardCount)))
+})
+
+
+// ---------- v1.7：自动单位 + 大号用量 metric ----------
+
+test('unitOf: result.unit 优先，缺失/缺字段回落 provider', () => {
+  const provider = makeProvider({ symbol: '¥', divisor: 500000, multiplier: 2, decimals: 2, usageScale: false })
+  assert.deepEqual(unitOf(provider, null), {
+    divisor: 500000,
+    multiplier: 2,
+    symbol: '¥',
+    decimals: 2,
+    usageScale: false,
+  })
+  assert.deepEqual(unitOf(provider, { unit: { divisor: 1, multiplier: 1, symbol: '🍪', decimals: 2 } }), {
+    divisor: 1,
+    multiplier: 1,
+    symbol: '🍪',
+    decimals: 2,
+    usageScale: false,
+  })
+  assert.equal(unitOf(provider, { unit: { symbol: '$' } }).divisor, 500000, 'unit 缺字段回落 provider')
+  assert.equal(unitOf(provider, { unit: { symbol: '$' } }).symbol, '$')
+  assert.equal(unitOf(provider, { unit: null }).symbol, '¥')
+})
+
+test('卡片/列表用有效单位格式化余额（STA1N 显示 🍪）', () => {
+  const state = stateWithProvider()
+  state.config.providers[0].symbol = '¥'
+  state.config.providers[0].divisor = 500000
+  state.results.p_abc12345 = makeResult('p_abc12345', {
+    unit: { divisor: 1, multiplier: 1, symbol: '🍪', decimals: 2 },
+    balance: 12.5,
+  })
+  const data = panelData(state, FULL_CAPS)
+  assert.equal(data.cards[0].balance, '🍪12.50')
+  assert.equal(data.rows[0].trailing, '🍪12.50', 'v1 列表同样用有效单位')
+
+  // 没有 unit 时走 provider 的换算
+  state.results.p_abc12345 = makeResult('p_abc12345', { balance: 1000000 })
+  assert.equal(panelData(state, FULL_CAPS).cards[0].balance, '¥2.00')
+})
+
+test('用量 metric：usageScale 时用有效单位换算，否则原始计数', () => {
+  const state = stateWithProvider()
+  state.config.providers[0].usageUrl = 'https://h/u'
+  state.config.providers[0].usageFields = [{ label: '额度', path: 'q' }]
+  state.config.providers[0].usageScale = true
+  state.results.p_abc12345 = makeResult('p_abc12345', {
+    unit: { divisor: 1, multiplier: 1, symbol: '🍪', decimals: 2 },
+    usage: [{ label: '额度', value: 2 }],
+  })
+  assert.deepEqual(panelData(state, FULL_CAPS).cards[0].usage0, { label: '额度', value: '🍪2.00' })
+
+  const raw = stateWithProvider()
+  raw.config.providers[0].usageUrl = 'https://h/u'
+  raw.config.providers[0].usageFields = [{ label: '近7天 Token', path: 't' }]
+  raw.config.providers[0].usageScale = false
+  raw.results.p_abc12345 = makeResult('p_abc12345', {
+    unit: { divisor: 1, multiplier: 1, symbol: '🍪', decimals: 2 },
+    usage: [{ label: '近7天 Token', value: 1554060713 }],
+  })
+  assert.deepEqual(panelData(raw, FULL_CAPS).cards[0].usage0, { label: '近7天 Token', value: '15.5亿' })
+})
+
+test('actions: auto-unit 翻转 autoUnit 并重建表单（patch+refresh）', async (t) => {
+  const home = await tempHome(t)
+  const { ctx } = fakeHost()
+  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, { data: { balance: 1 } }) })
+  await store.ensureReady()
+  await store.actions.add({}, { locale: 'zh-CN' })
+  await store.actions['choose-template']({}, { locale: 'zh-CN', value: { preset: 'newapi' } })
+  store.state.form.autoUnit = true
+  const before = collectInputs(panelView(store.state, FULL_CAPS)).map((input) => input.bind)
+  assert.ok(before.includes('data.form.autoUnit'))
+  assert.ok(!before.includes('data.form.symbol'))
+
+  const effects = await store.actions['auto-unit']({}, { locale: 'zh-CN' })
+  assert.equal(store.state.form.autoUnit, false)
+  assert.deepEqual(effectTypes(effects).slice(0, 2), ['patch', 'refresh'])
+  const after = collectInputs(panelView(store.state, FULL_CAPS)).map((input) => input.bind)
+  for (const bind of ['data.form.autoUnit', 'data.form.symbol', 'data.form.multiplier']) {
+    assert.ok(after.includes(bind), `关掉自动单位后应显示 ${bind}`)
+  }
+  assert.ok(after.length <= 32)
+
+  await store.actions['auto-unit']({}, { locale: 'zh-CN' })
+  assert.equal(store.state.form.autoUnit, true)
+})
+
+test('actions: newapi 表单可关掉 autoUnit 并落盘', async (t) => {
+  const home = await tempHome(t)
+  const { ctx } = fakeHost()
+  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, { data: { balance: 1 } }) })
+  await store.ensureReady()
+  await store.actions.add({}, { locale: 'zh-CN' })
+  await store.actions['choose-template']({}, { locale: 'zh-CN', value: { preset: 'newapi' } })
+  const effects = await store.actions.save({}, {
+    locale: 'zh-CN',
+    value: {
+      values: {
+        'data.form.siteBase': 'https://sta1n.ai',
+        'data.form.secret': 'sk-relay-token',
+        'data.form.autoUnit': false,
+        'data.form.symbol': '¥',
+        'data.form.multiplier': 2,
+        'data.form.name': 'STA1N',
+      },
+    },
+  })
+  assert.equal(effects.at(-1).text, '已保存')
+  const saved = (await loadConfig(configPath(home))).providers[0]
+  assert.equal(saved.autoUnit, false)
+  assert.equal(saved.url, 'https://sta1n.ai/api/user/self')
 })

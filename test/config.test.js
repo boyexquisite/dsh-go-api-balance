@@ -107,7 +107,7 @@ test('validateProvider 接受完整合法草稿并补齐默认值', () => {
   const provider = result.provider
   assert.match(provider.id, /^p_[a-z0-9]{6,12}$/)
   assert.deepEqual(Object.keys(provider).sort(), [
-    'authType', 'balancePath', 'bodyText', 'currencyPath', 'decimals', 'detailPaths',
+    'authType', 'autoUnit', 'balancePath', 'bodyText', 'currencyPath', 'decimals', 'detailPaths',
     'divisor', 'enabled', 'headersText', 'id', 'loginUrl', 'method', 'multiplier',
     'name', 'preset', 'secret', 'secretHeader', 'secretParam', 'symbol', 'tokenHeader',
     'tokenPath', 'tokenPrefix', 'url', 'usageArrayPath', 'usageFields', 'usageMethod',
@@ -138,6 +138,7 @@ test('validateProvider 接受完整合法草稿并补齐默认值', () => {
   assert.equal(provider.usageArrayPath, '')
   assert.deepEqual(provider.usageFields, [])
   assert.equal(provider.usageScale, false)
+  assert.equal(provider.autoUnit, false)
 })
 
 test('validateProvider 丢弃未知字段、数字字符串转数字、decimals 取整', () => {
@@ -446,6 +447,35 @@ test('配置读写保留 usage 字段，旧配置补默认值', async (t) => {
   assert.equal(legacy.providers[0].usageMethod, 'GET')
   assert.deepEqual(legacy.providers[0].usageFields, [])
   assert.equal(legacy.providers[0].usageScale, false)
+})
+
+// ---------- autoUnit（v1.7） ----------
+
+test('autoUnit 默认 false，接受布尔/布尔字符串，providerToDraft 带出', () => {
+  assert.equal(validateProvider(validDraft()).provider.autoUnit, false)
+  assert.equal(validateProvider(validDraft({ autoUnit: true })).provider.autoUnit, true)
+  assert.equal(validateProvider(validDraft({ autoUnit: 'true' })).provider.autoUnit, true)
+  assert.equal(validateProvider(validDraft({ autoUnit: false })).provider.autoUnit, false)
+  assert.equal(validateProvider(validDraft({ autoUnit: 'false' })).provider.autoUnit, false)
+  const provider = validateProvider(validDraft({ autoUnit: true })).provider
+  assert.equal(providerToDraft(provider).autoUnit, true)
+  assert.equal(providerToDraft({ name: 'legacy' }).autoUnit, false)
+})
+
+test('配置读写保留 autoUnit，旧配置缺失按 false', async (t) => {
+  const home = await tempHome(t)
+  const provider = validateProvider(validDraft({ autoUnit: true })).provider
+  await saveConfig({ v: 1, providers: [provider], settings: defaultSettings() }, configPath(home))
+  const loaded = await loadConfig(configPath(home))
+  assert.equal(loaded.providers[0].autoUnit, true)
+
+  await fs.writeFile(configPath(home), JSON.stringify({
+    v: 1,
+    providers: [{ id: 'p_legacy01', name: '旧', url: 'https://x.example', secret: 's', balancePath: 'data.b' }],
+    settings: {},
+  }), 'utf8')
+  const legacy = await loadConfig(configPath(home))
+  assert.equal(legacy.providers[0].autoUnit, false)
 })
 
 // ---------- 配置读写 ----------

@@ -433,3 +433,36 @@ export function presetOptions() // → [{ label, value }] 给 UI 选项（含 cu
 - 移除 v1.5 的 chips 操作行、`cardChoice*`/`cardConfirm*` 数据和 `card-action`/`card-confirm` 动作。
 - `formOpen===true` 时卡片标题行不渲染 action（不可点菜单），menuId 清空。
 - 其余（余额/用量/状态展示、向导、模板表单、自动刷新、strip 空、v1 只读降级、预算）不变；tests 同步。
+
+## 17. v1.7：站点货币自动识别 + 用量改成大号指标
+
+> 哥哥 2026-11-13：①「单位有问题」（STA1N 显示 ¥，但站点货币是 🍪）；②「参考 Token 用量插件，把每块的用量不要弄那么小」。
+> 站点后台 `/api/status` 是公开接口，带 `quota_per_unit` / `quota_display_type` / `custom_currency_symbol` /
+> `custom_currency_exchange_rate` / `usd_exchange_rate`，可以自动识别货币单位，不用手填符号/乘数。
+
+### 17.1 core：自动单位（`lib/query.js`、`lib/config.js`、`lib/presets.js`）
+
+- Provider 新增 `autoUnit: boolean`（默认 false；`newapi` 预设默认 true）。`providerToDraft` 带出。
+- `resolveUnit(provider, { signal, timeoutMs })`（导出，纯逻辑 + fetch）：
+  - 从 `provider.url` 去掉 `/api/user/self` 得到站点根，GET `<根>/api/status`（公开、无鉴权、独立超时）；runner 内按站点根缓存 10 分钟。
+  - 取 `data = json.data ?? json`；`qpu = Number(data.quota_per_unit) || 500000`。
+  - `display_in_currency !== true` 或 `quota_display_type === 'TOKENS'` → `{ divisor:1, multiplier:1, symbol:'', decimals:0 }`；
+  - `quota_display_type`：
+    - `'USD'` → `{ divisor:qpu, multiplier:1, symbol:'$', decimals:2 }`
+    - `'CNY'` → `{ divisor:qpu, multiplier:Number(data.usd_exchange_rate)||1, symbol:'¥', decimals:2 }`
+    - `'CUSTOM'` → `{ divisor:qpu, multiplier:Number(data.custom_currency_exchange_rate)||1, symbol:String(data.custom_currency_symbol||''), decimals:2 }`
+  - 其他/取不到 → null（失败静默，不污染 Result）。
+- `queryProvider`：`provider.autoUnit && provider.preset === 'newapi'` 时先 `resolveUnit`，非空则 Result 增加 `unit`（否则 `unit:null`）。
+- `Result.unit: { divisor, multiplier, symbol, decimals } | null`；换算仍由展示层做（balance 原始值不变）。
+- 测试：CUSTOM/CNY/USD/TOKENS、缺字段回退、status 失败/超时/取消静默、缓存 10 分钟、非 newapi 不请求。
+
+### 17.2 ui：用量大号指标 + 应用自动单位
+
+- 卡片不再用 caption 小字显示用量；改为 `row` 里最多 2 个 `metric`（参考 Token 用量插件）：
+  - 视图按 `provider.usageFields.length`（≤2）生成 metric 槽位：`label` 绑 `data.cards.<i>.usage0.label`、`value` 绑 `data.cards.<i>.usage0.value`（第二项 `usage1`）；
+  - `panelData.cards[i].usage0/usage1 = { label, value } | null`；`value` 用 `formatUsage` 格式化（`usageScale` 时按有效单位）；
+  - 两个 metric 并排在 `row` 里（metric 最小宽 96dp，两个 204dp < 卡片内容宽，可排下）；只有一个字段时单个 metric。
+- 余额/明细/用量换算一律用「有效单位」：`result.unit ?? { divisor:provider.divisor, multiplier:provider.multiplier, symbol:provider.symbol, decimals:provider.decimals }`；`formatAmount`/`formatDetailValue`/`formatUsage` 接收有效单位对象。
+- newapi 表单：新增 `autoUnit` toggle「自动识别站点货币（推荐）」，默认开；开启时隐藏「货币符号」「乘数」两个字段，关闭时显示（onChange 动作 `card`？→ `auto-unit`：翻 state.form.autoUnit 并 `patch+refresh`，视图重建显示/隐藏字段）。
+- save 分支：`autoUnit` 落盘（表单没有该字段时用预设默认）。
+- 旧配置（autoUnit 缺失）按 false 处理；真机验证后把他的 STA1N 配置 autoUnit 置 true。

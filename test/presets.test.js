@@ -191,3 +191,23 @@ test('newapi 用量草稿每次新建且数组可安全修改', () => {
   assert.equal(b.usageFields[0].label, '近7天 Token')
   assert.notEqual(a.usageFields, b.usageFields)
 })
+
+// ---------- v1.7 autoUnit ----------
+
+test('newapi 预设默认开 autoUnit，deepseek / custom 默认关', () => {
+  assert.equal(presetDraft('newapi', { base: 'https://relay.example.com' }).autoUnit, true)
+  assert.equal(presetDraft('newapi').autoUnit, true)
+  assert.equal(presetDraft('deepseek').autoUnit, false)
+  assert.equal(presetDraft('custom').autoUnit, false)
+})
+
+test('newapi 预设 autoUnit 可通过 validateProvider 校验', () => {
+  const draft = {
+    ...presetDraft('newapi', { base: 'https://relay.example.com' }),
+    secret: 'sk-test-123456',
+  }
+  const result = validateProvider(draft)
+  assert.equal(result.ok, true)
+  assert.equal(result.provider.autoUnit, true)
+  assert.equal(result.provider.preset, 'newapi')
+})
