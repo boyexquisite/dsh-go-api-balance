@@ -36,6 +36,8 @@ dsh plugin --profile web add dsh-go-api-balance
 | 模板 | 地址 | 鉴权 | 余额路径 | 换算 |
 |---|---|---|---|---|
 | DeepSeek | `https://api.deepseek.com/user/balance` | Bearer | `balance_infos[0].total_balance` | 原值 |
+| Kimi / Moonshot | `api.moonshot.cn|.ai/v1/users/me/balance` | Bearer | `data.available_balance` | 原值（.cn 是 ¥、.ai 是 $） |
+| 小米 MiMo | `api.xiaomimimo.com/v1/platform/balance` | Bearer | `balance_infos[0].total_available` | 原值 |
 | new-api / one-api | `<站点>/api/user/self` | Bearer（站点访问令牌） | `data.quota` | 自动读站点 `/api/status` 的货币与汇率（也可手动关掉） |
 | ↑ 的用量 | `<站点>/api/data/self?start_timestamp={7d}&end_timestamp={now}&default_time=day` | 同上 | 数组 `data` 里 `token_used`/`count` 求和 | 原值 |
 

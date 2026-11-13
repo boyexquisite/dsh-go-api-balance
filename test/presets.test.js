@@ -3,10 +3,12 @@ import assert from 'node:assert/strict'
 import { PRESETS, presetDraft, presetOptions } from '../lib/presets.js'
 import { validateProvider } from '../lib/config.js'
 
-test('PRESETS 只包含两个内置模板，文案符合 spec', () => {
+test('PRESETS 包含四个内置模板，文案符合 spec', () => {
   assert.deepEqual(PRESETS, [
     { id: 'deepseek', label: 'DeepSeek 官方' },
     { id: 'newapi', label: 'new-api / one-api 中转' },
+    { id: 'kimi', label: 'Kimi / Moonshot' },
+    { id: 'mimo', label: '小米 MiMo' },
   ])
 })
 
@@ -15,10 +17,12 @@ test('presetOptions 含自定义，label/value 成对且每次新建', () => {
   assert.deepEqual(options, [
     { label: 'DeepSeek 官方', value: 'deepseek' },
     { label: 'new-api / one-api 中转', value: 'newapi' },
+    { label: 'Kimi / Moonshot', value: 'kimi' },
+    { label: '小米 MiMo', value: 'mimo' },
     { label: '自定义', value: 'custom' },
   ])
   options.pop()
-  assert.equal(presetOptions().length, 3)
+  assert.equal(presetOptions().length, 5)
 })
 
 test('deepseek 模板字段严格符合 spec', () => {
@@ -210,4 +214,82 @@ test('newapi 预设 autoUnit 可通过 validateProvider 校验', () => {
   assert.equal(result.ok, true)
   assert.equal(result.provider.autoUnit, true)
   assert.equal(result.provider.preset, 'newapi')
+})
+
+// ---------- v1.8 Kimi / MiMo ----------
+
+test('kimi 预设国内区域：moonshot.cn、¥ 与明细字段', () => {
+  const draft = presetDraft('kimi')
+  assert.equal(draft.preset, 'kimi')
+  assert.equal(draft.region, 'cn')
+  assert.equal(draft.name, 'Kimi')
+  assert.equal(draft.url, 'https://api.moonshot.cn/v1/users/me/balance')
+  assert.equal(draft.method, 'GET')
+  assert.equal(draft.authType, 'bearer')
+  assert.equal(draft.balancePath, 'data.available_balance')
+  assert.equal(draft.currencyPath, '')
+  assert.deepEqual(draft.detailPaths, [
+    { label: '代金券', path: 'data.voucher_balance' },
+    { label: '现金', path: 'data.cash_balance' },
+  ])
+  assert.equal(draft.divisor, 1)
+  assert.equal(draft.multiplier, 1)
+  assert.equal(draft.symbol, '¥')
+  assert.equal(draft.decimals, 2)
+  assert.equal(draft.autoUnit, false)
+  assert.equal(draft.usageUrl, '')
+})
+
+test('kimi 预设海外区域：moonshot.ai 与 $', () => {
+  const draft = presetDraft('kimi', { region: 'global' })
+  assert.equal(draft.region, 'global')
+  assert.equal(draft.url, 'https://api.moonshot.ai/v1/users/me/balance')
+  assert.equal(draft.symbol, '$')
+  assert.equal(draft.balancePath, 'data.available_balance')
+  assert.equal(presetDraft('kimi', { region: 'bogus' }).region, 'cn')
+  assert.equal(presetDraft('kimi', { region: 'bogus' }).url, 'https://api.moonshot.cn/v1/users/me/balance')
+})
+
+test('kimi 草稿填密钥后可通过校验，region 不落盘', () => {
+  const draft = { ...presetDraft('kimi', { region: 'global' }), secret: 'sk-test-123456' }
+  const result = validateProvider(draft)
+  assert.equal(result.ok, true)
+  assert.equal(result.provider.preset, 'kimi')
+  assert.equal('region' in result.provider, false)
+  assert.equal(result.provider.symbol, '$')
+})
+
+test('mimo 预设字段严格符合 spec', () => {
+  const draft = presetDraft('mimo')
+  assert.equal(draft.preset, 'mimo')
+  assert.equal(draft.name, '小米 MiMo')
+  assert.equal(draft.url, 'https://api.xiaomimimo.com/v1/platform/balance')
+  assert.equal(draft.method, 'GET')
+  assert.equal(draft.authType, 'bearer')
+  assert.equal(draft.balancePath, 'balance_infos[0].total_available')
+  assert.equal(draft.currencyPath, 'balance_infos[0].currency')
+  assert.deepEqual(draft.detailPaths, [
+    { label: '现金', path: 'balance_infos[0].cash_balance' },
+    { label: '赠送', path: 'balance_infos[0].gift_balance' },
+    { label: '冻结', path: 'balance_infos[0].frozen_balance' },
+  ])
+  assert.equal(draft.symbol, '¥')
+  assert.equal(draft.divisor, 1)
+  assert.equal(draft.multiplier, 1)
+  assert.equal(draft.decimals, 2)
+  assert.equal(draft.autoUnit, false)
+})
+
+test('mimo 草稿填密钥后可通过校验', () => {
+  const draft = { ...presetDraft('mimo'), secret: 'sk-test-123456' }
+  const result = validateProvider(draft)
+  assert.equal(result.ok, true)
+  assert.equal(result.provider.preset, 'mimo')
+  assert.equal(result.provider.balancePath, 'balance_infos[0].total_available')
+})
+
+test('kimi / mimo 草稿每次返回新对象', () => {
+  const first = presetDraft('mimo')
+  first.detailPaths[0].label = '改了'
+  assert.equal(presetDraft('mimo').detailPaths[0].label, '现金')
 })

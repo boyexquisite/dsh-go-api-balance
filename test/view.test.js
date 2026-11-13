@@ -284,7 +284,9 @@ function samples () {
   const picking = freshState({ pickTemplate: true })
   const deepseekForm = freshState({ formOpen: true, form: draftForm(presetDraft('deepseek')) })
   const newapiForm = freshState({ formOpen: true, form: draftForm(presetDraft('newapi')) })
-  return { empty, cards, formNew, formEdit, confirm, tested, worst, picking, deepseekForm, newapiForm }
+  const kimiForm = freshState({ formOpen: true, form: draftForm(presetDraft('kimi')) })
+  const mimoForm = freshState({ formOpen: true, form: draftForm(presetDraft('mimo')) })
+  return { empty, cards, formNew, formEdit, confirm, tested, worst, picking, deepseekForm, newapiForm, kimiForm, mimoForm }
 }
 
 // ---------- 文案 ----------// ---------- 文案 ----------
@@ -341,7 +343,9 @@ test('words: 中英文案 key 齐全、值非空、长度在 UI 上限内', () =
       assert.ok(label.trim() !== '', `${locale}.fields.${key} 标签为空`)
       assert.ok([...label].length <= 200, `${locale}.fields.${key} 标签过长`)
     }
-    assert.deepEqual(dictionary.presets.map((item) => item.value).sort(), ['custom', 'deepseek', 'newapi'])
+    assert.deepEqual(dictionary.presets.map((item) => item.value).sort(), ['custom', 'deepseek', 'kimi', 'mimo', 'newapi'])
+    assert.ok(dictionary.templateKimiSub.trim() !== '')
+    assert.ok(dictionary.templateMimoSub.trim() !== '')
     assert.equal(Object.keys(dictionary.authNames).length, 6)
   }
 })
@@ -384,15 +388,24 @@ test('panelView: v2 根节点、无 minApp、自定义表单两页签与必填�
   assert.ok(JSON.stringify(view).includes('{7d}'), '用量地址 placeholder 带 {7d} 说明')
 })
 
-test('panelView: 添加向导先出三种服务类型（list 行内 choose-template）', () => {
+test('panelView: 添加向导出五种服务类型（list 行内 choose-template）', () => {
   const view = panelView(freshState({ pickTemplate: true }), FULL_CAPS)
   assert.deepEqual(childrenTypes(view), ['emptyState', 'text', 'list', 'actions'])
   const list = view.children.find((child) => child.type === 'list')
-  assert.equal(list.items.length, 3)
+  assert.equal(list.items.length, 5)
   assert.deepEqual(list.items.map((item) => item.action), [
     { id: 'choose-template', args: { preset: 'deepseek' } },
     { id: 'choose-template', args: { preset: 'newapi' } },
+    { id: 'choose-template', args: { preset: 'kimi' } },
+    { id: 'choose-template', args: { preset: 'mimo' } },
     { id: 'choose-template', args: { preset: 'custom' } },
+  ])
+  assert.deepEqual(list.items.map((item) => item.subtitle), [
+    words('zh').templateDeepseekSub,
+    words('zh').templateNewapiSub,
+    words('zh').templateKimiSub,
+    words('zh').templateMimoSub,
+    words('zh').templateCustomSub,
   ])
   assert.deepEqual(list.items.map((item) => item.title), words('zh').presets.map((item) => item.label))
   assert.ok(!JSON.stringify(view).includes('"form"'), '选类型阶段不出表单')
@@ -444,6 +457,26 @@ test('panelView: 模板表单只显示关键字段（deepseek 2 项 / newapi aut
   for (const bind of ['data.form.symbol', 'data.form.multiplier', 'data.form.autoUnit']) {
     assert.ok(manualInputs.includes(bind), `手动单位时应有 ${bind}`)
   }
+
+  // Kimi：名称 + 区域 + API Key
+  const kimi = freshState({ formOpen: true, form: draftForm(presetDraft('kimi')) })
+  const kimiView = panelView(kimi, FULL_CAPS)
+  assert.deepEqual(collectInputs(kimiView).map((input) => input.bind), [
+    'data.form.name',
+    'data.form.region',
+    'data.form.secret',
+  ])
+  const regionInput = collectInputs(kimiView).find((input) => input.bind === 'data.form.region')
+  assert.equal(regionInput.type, 'select')
+  assert.deepEqual(regionInput.options.map((option) => option.value), ['cn', 'global'])
+  assert.ok(JSON.stringify(kimiView).includes('/v1/users/me/balance'))
+  assert.equal(kimi.form.region, 'cn', 'Kimi 默认国内')
+
+  // MiMo：名称 + API Key
+  const mimo = freshState({ formOpen: true, form: draftForm(presetDraft('mimo')) })
+  const mimoView = panelView(mimo, FULL_CAPS)
+  assert.deepEqual(collectInputs(mimoView).map((input) => input.bind), ['data.form.name', 'data.form.secret'])
+  assert.ok(JSON.stringify(mimoView).includes('/v1/platform/balance'))
 })
 
 test('panelView: 所有状态下的绑定路径都能在 panelData 找到', () => {
@@ -1877,4 +1910,125 @@ test('actions: newapi 表单可关掉 autoUnit 并落盘', async (t) => {
   const saved = (await loadConfig(configPath(home))).providers[0]
   assert.equal(saved.autoUnit, false)
   assert.equal(saved.url, 'https://sta1n.ai/api/user/self')
+})
+
+
+// ---------- v1.8：Kimi / MiMo 预设 ----------
+
+test('draftForm: Kimi 区域默认 cn / global，MiMo 固定字段', () => {
+  const kimi = draftForm(presetDraft('kimi'))
+  assert.equal(kimi.preset, 'kimi')
+  assert.equal(kimi.region, 'cn')
+  assert.equal(kimi.url, 'https://api.moonshot.cn/v1/users/me/balance')
+  assert.equal(kimi.symbol, '¥')
+
+  const global = draftForm(presetDraft('kimi', { region: 'global' }))
+  assert.equal(global.region, 'global')
+  assert.equal(global.url, 'https://api.moonshot.ai/v1/users/me/balance')
+  assert.equal(global.symbol, '$')
+
+  const mimo = draftForm(presetDraft('mimo'))
+  assert.equal(mimo.preset, 'mimo')
+  assert.equal(mimo.url, 'https://api.xiaomimimo.com/v1/platform/balance')
+  assert.equal(mimo.balancePath, 'balance_infos[0].total_available')
+})
+
+test('providerForm: 从 moonshot 域名反推 Kimi 区域', () => {
+  const cn = providerForm(makeProvider({ preset: 'kimi', url: 'https://api.moonshot.cn/v1/users/me/balance' }))
+  assert.equal(cn.region, 'cn')
+  const global = providerForm(makeProvider({ preset: 'kimi', url: 'https://api.moonshot.ai/v1/users/me/balance' }))
+  assert.equal(global.region, 'global')
+  assert.equal(global.secret, '')
+  assert.equal(global.secretSet, true)
+})
+
+test('actions: choose-template kimi/mimo 生成对应简表', async (t) => {
+  const home = await tempHome(t)
+  const { ctx } = fakeHost()
+  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, { data: { balance: 1 } }) })
+  await store.ensureReady()
+  await store.actions.add({}, { locale: 'zh-CN' })
+  let effects = await store.actions['choose-template']({}, { locale: 'zh-CN', value: { preset: 'kimi' } })
+  assert.equal(effectTypes(effects).includes('refresh'), true)
+  assert.equal(store.state.form.preset, 'kimi')
+  assert.equal(store.state.form.region, 'cn')
+  assert.equal(store.state.form.url, 'https://api.moonshot.cn/v1/users/me/balance')
+  const kimiView = store.panelView(FULL_CAPS)
+  assert.deepEqual(collectInputs(kimiView).map((input) => input.bind), ['data.form.name', 'data.form.region', 'data.form.secret'])
+  assertResolvable(kimiView, store.panelData(FULL_CAPS), 'kimi-form')
+
+  effects = await store.actions['choose-template']({}, { locale: 'zh-CN', value: { preset: 'mimo' } })
+  assert.equal(effectTypes(effects).includes('refresh'), true)
+  assert.equal(store.state.form.preset, 'mimo')
+  assert.equal(store.state.form.url, 'https://api.xiaomimimo.com/v1/platform/balance')
+  const mimoView = store.panelView(FULL_CAPS)
+  assert.deepEqual(collectInputs(mimoView).map((input) => input.bind), ['data.form.name', 'data.form.secret'])
+  assertResolvable(mimoView, store.panelData(FULL_CAPS), 'mimo-form')
+})
+
+test('actions: save kimi 按区域拼 url/symbol，region 不落盘', async (t) => {
+  const home = await tempHome(t)
+  const { ctx } = fakeHost()
+  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, { data: { balance: 1 } }) })
+  await store.ensureReady()
+  await store.actions.add({}, { locale: 'zh-CN' })
+  await store.actions['choose-template']({}, { locale: 'zh-CN', value: { preset: 'kimi' } })
+  let effects = await store.actions.save({}, {
+    locale: 'zh-CN',
+    value: {
+      values: {
+        'data.form.name': '',
+        'data.form.region': 'cn',
+        'data.form.secret': 'sk-kimi-cn',
+      },
+    },
+  })
+  assert.equal(effects.at(-1).text, '已保存')
+  let saved = (await loadConfig(configPath(home))).providers[0]
+  assert.equal(saved.preset, 'kimi')
+  assert.equal(saved.name, 'Kimi', '名称为空用默认名')
+  assert.equal(saved.url, 'https://api.moonshot.cn/v1/users/me/balance')
+  assert.equal(saved.symbol, '¥')
+  assert.equal(saved.balancePath, 'data.available_balance')
+  assert.equal(saved.secret, 'sk-kimi-cn')
+  assert.equal(Object.hasOwn(saved, 'region'), false, 'region 是表单专用字段，不落盘')
+
+  // 再编辑改成海外区域
+  await store.actions['card-edit']({}, { locale: 'zh-CN', value: { id: saved.id } })
+  effects = await store.actions.save({}, {
+    locale: 'zh-CN',
+    value: {
+      values: {
+        'data.form.name': saved.name,
+        'data.form.region': 'global',
+        'data.form.secret': '',
+      },
+    },
+  })
+  assert.equal(effects.at(-1).text, '已保存')
+  saved = (await loadConfig(configPath(home))).providers[0]
+  assert.equal(saved.url, 'https://api.moonshot.ai/v1/users/me/balance')
+  assert.equal(saved.symbol, '$')
+  assert.equal(saved.secret, 'sk-kimi-cn', '编辑留空沿用原密钥')
+})
+
+test('actions: save mimo 固定 url/字段，名称为空用默认名', async (t) => {
+  const home = await tempHome(t)
+  const { ctx } = fakeHost()
+  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, { data: { balance: 1 } }) })
+  await store.ensureReady()
+  await store.actions.add({}, { locale: 'zh-CN' })
+  await store.actions['choose-template']({}, { locale: 'zh-CN', value: { preset: 'mimo' } })
+  const effects = await store.actions.save({}, {
+    locale: 'zh-CN',
+    value: { values: { 'data.form.name': '', 'data.form.secret': 'sk-mimo-key' } },
+  })
+  assert.equal(effects.at(-1).text, '已保存')
+  const saved = (await loadConfig(configPath(home))).providers[0]
+  assert.equal(saved.preset, 'mimo')
+  assert.equal(saved.name, '小米 MiMo')
+  assert.equal(saved.url, 'https://api.xiaomimimo.com/v1/platform/balance')
+  assert.equal(saved.balancePath, 'balance_infos[0].total_available')
+  assert.deepEqual(saved.detailPaths.map((row) => row.label), ['现金', '赠送', '冻结'])
+  assert.equal(saved.secret, 'sk-mimo-key')
 })

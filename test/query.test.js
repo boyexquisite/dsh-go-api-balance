@@ -1126,16 +1126,33 @@ test('resolveUnit 缺字段回退：qpu 500000、汇率 1、空符号、支持�
   )
 })
 
-test('resolveUnit 未知 display type 返回 null', async () => {
-  const impl = statusOnlyFetch(statusBody({ quota_display_type: 'EUR' }))
-  assert.equal(
-    await resolveUnit({ url: 'https://unit-unknown.example/api/user/self' }, { fetchImpl: impl }),
-    null,
-  )
-  const missingType = statusOnlyFetch({ display_in_currency: true })
-  assert.equal(
+test('resolveUnit 缺/未知 display type 时按 USD 兜底（one-api）', async () => {
+  const missingType = statusOnlyFetch({ display_in_currency: true, quota_per_unit: 200000 })
+  assert.deepEqual(
     await resolveUnit({ url: 'https://unit-null-type.example/api/user/self' }, { fetchImpl: missingType }),
-    null,
+    { divisor: 200000, multiplier: 1, symbol: '$', decimals: 2 },
+  )
+
+  const unknownType = statusOnlyFetch(statusBody({ quota_display_type: 'EUR' }))
+  assert.deepEqual(
+    await resolveUnit({ url: 'https://unit-unknown.example/api/user/self' }, { fetchImpl: unknownType }),
+    { divisor: 500000, multiplier: 1, symbol: '$', decimals: 2 },
+  )
+})
+
+test('resolveUnit 缺 display type 且 display_in_currency=false → TOKENS', async () => {
+  const impl = statusOnlyFetch({ display_in_currency: false, quota_per_unit: 200000 })
+  assert.deepEqual(
+    await resolveUnit({ url: 'https://unit-oneapi-tokens.example/api/user/self' }, { fetchImpl: impl }),
+    { divisor: 1, multiplier: 1, symbol: '', decimals: 0 },
+  )
+})
+
+test('resolveUnit 缺 display type 且 display_in_currency 缺失 → USD 兜底', async () => {
+  const impl = statusOnlyFetch({ quota_per_unit: 100000 })
+  assert.deepEqual(
+    await resolveUnit({ url: 'https://unit-oneapi-undefined.example/api/user/self' }, { fetchImpl: impl }),
+    { divisor: 100000, multiplier: 1, symbol: '$', decimals: 2 },
   )
 })
 
@@ -1359,6 +1376,15 @@ test('queryProvider：status 阶段被取消时 unit 静默，余额记为已取
   assert.equal(result.error, '已取消')
   assert.equal(result.unit, null)
   assert.equal(calls.length, 1)
+})
+
+test('queryProvider：one-api 缺 display type 的站自动按 USD 兜底', async () => {
+  const calls = []
+  const impl = unitAwareFetch({ data: { display_in_currency: true, quota_per_unit: 500000 } }, calls)
+  const runner = createRunner({ fetchImpl: impl, now: () => UNIT_NOW })
+  const result = await runner.queryProvider(autoUnitNewApiProvider())
+  assert.equal(result.ok, true)
+  assert.deepEqual(result.unit, { divisor: 500000, multiplier: 1, symbol: '$', decimals: 2 })
 })
 
 test('queryProvider：非 autoUnit 的 Result.unit 恒为 null', async () => {

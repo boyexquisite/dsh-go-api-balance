@@ -466,3 +466,35 @@ export function presetOptions() // → [{ label, value }] 给 UI 选项（含 cu
 - newapi 表单：新增 `autoUnit` toggle「自动识别站点货币（推荐）」，默认开；开启时隐藏「货币符号」「乘数」两个字段，关闭时显示（onChange 动作 `card`？→ `auto-unit`：翻 state.form.autoUnit 并 `patch+refresh`，视图重建显示/隐藏字段）。
 - save 分支：`autoUnit` 落盘（表单没有该字段时用预设默认）。
 - 旧配置（autoUnit 缺失）按 false 处理；真机验证后把他的 STA1N 配置 autoUnit 置 true。
+
+## 18. v1.8：补 Kimi / 小米 MiMo 预设，one-api 单位兜底
+
+> 调研结论（见 docs/research/*.md）：官方平台里可直接拿「余额」的国产/海外少，
+> Kimi（Moonshot）和小米 MiMo 是官方文档干净、只需 API Key 的两家，先加为内置预设；
+> one-api 的 `/api/status` 有 quota_per_unit + display_in_currency 但缺 quota_display_type，
+> 按「display_in_currency=false → TOKENS，否则按 USD」兜底。
+
+### 18.1 core
+
+- `PRESETS` 增加两项（preset 枚举扩到 `custom|deepseek|newapi|kimi|mimo`）：
+  - `kimi`（label「Kimi / Moonshot」）：`presetDraft('kimi', { region='cn', token })` →
+    `region='cn'` → url `https://api.moonshot.cn/v1/users/me/balance`、symbol `¥`；
+    `region='global'` → `https://api.moonshot.ai/v1/users/me/balance`、symbol `$`；
+    bearer、`balancePath='data.available_balance'`、`currencyPath=''`、
+    明细 `代金券=data.voucher_balance`、`现金=data.cash_balance`；divisor/multiplier=1、decimals=2、autoUnit=false。
+  - `mimo`（label「小米 MiMo」）：url `https://api.xiaomimimo.com/v1/platform/balance`、bearer、
+    `balancePath='balance_infos[0].total_available'`、`currencyPath='balance_infos[0].currency'`、
+    明细 `现金=balance_infos[0].cash_balance`、`赠送=balance_infos[0].gift_balance`、`冻结=balance_infos[0].frozen_balance`；
+    symbol `¥`、decimals=2、autoUnit=false。
+  - `presetDraft` 的 region 参数放草稿字段 `region`（表单用，不落盘）。
+- `resolveUnit`：`quota_display_type` 缺失或未知时不再直接 null——若 `display_in_currency === false` →
+  `{1,1,'',0}`（TOKENS）；否则按 USD 兜底 `{divisor:qpu, multiplier:1, symbol:'$', decimals:2}`；status 请求失败仍 null。
+- 测试：两个预设的 url/字段/symbol、region 切换、preset 枚举校验、resolveUnit 的新兜底分支。
+
+### 18.2 ui
+
+- 添加服务向导加两行：`Kimi / Moonshot`、`小米 MiMo`（副标题「只填 API Key」）。
+- Kimi 模板表单：名称 + 区域 select（国内 .cn / 海外 .ai）+ API Key；保存按区域拼 url/symbol。
+- MiMo 模板表单：名称 + API Key；保存固定 url/字段。
+- `draftForm`/`save` 分支支持 kimi（region 参数）/mimo；其余保持。
+- tests：向导行数/两套简表/保存分支/绑定路径/预算。

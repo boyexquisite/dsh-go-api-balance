@@ -478,6 +478,26 @@ test('配置读写保留 autoUnit，旧配置缺失按 false', async (t) => {
   assert.equal(legacy.providers[0].autoUnit, false)
 })
 
+// ---------- v1.8 preset 枚举 ----------
+
+test('preset 枚举接受 deepseek/newapi/kimi/mimo/custom，未知回落 custom', () => {
+  for (const preset of ['custom', 'deepseek', 'newapi', 'kimi', 'mimo']) {
+    const result = validateProvider(validDraft({ preset }))
+    assert.equal(result.ok, true)
+    assert.equal(result.provider.preset, preset)
+  }
+  assert.equal(validateProvider(validDraft({ preset: 'unknown' })).provider.preset, 'custom')
+  assert.equal('region' in validateProvider(validDraft({ preset: 'kimi', region: 'global' })).provider, false)
+})
+
+test('配置读写保留 kimi / mimo preset', async (t) => {
+  const home = await tempHome(t)
+  const providers = ['kimi', 'mimo'].map((preset) => validateProvider(validDraft({ preset })).provider)
+  await saveConfig({ v: 1, providers, settings: defaultSettings() }, configPath(home))
+  const loaded = await loadConfig(configPath(home))
+  assert.deepEqual(loaded.providers.map((provider) => provider.preset), ['kimi', 'mimo'])
+})
+
 // ---------- 配置读写 ----------
 
 test('saveConfig 创建 0700 目录、0600 文件并原子替换', async (t) => {
