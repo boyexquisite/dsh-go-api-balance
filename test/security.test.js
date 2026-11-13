@@ -29,9 +29,17 @@ test('安全基线：零运行时依赖、无安装/发布脚本', async () => {
     assert.ok(value === undefined || Object.keys(value).length === 0, `${field} 必须为空`)
   }
   const scripts = pkg.scripts || {}
+  // npm 会在安装/打包时自动执行这些钩子；本插件只允许显式运行的普通脚本。
+  const installHooks = new Set([
+    'preinstall', 'install', 'postinstall',
+    'prepack', 'postpack', 'prepare',
+    'prepublish', 'publish', 'postpublish',
+    'preversion', 'version', 'postversion',
+  ])
   for (const name of Object.keys(scripts)) {
-    assert.ok(name === 'test', `不允许安装/发布类脚本：${name}`)
+    assert.ok(!installHooks.has(name), `不允许安装/发布钩子：${name}`)
   }
+  assert.equal(scripts.test, 'node --test test/*.test.js')
 })
 
 test('安全基线：插件清单不申请对话/剪贴板等权限', async () => {
