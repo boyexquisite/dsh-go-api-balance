@@ -4,7 +4,7 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 
-import { configPath, resultsPath, saveConfig, saveResults, loadConfig } from '../lib/config.js'
+import { configPath, resultsPath, saveConfig, saveResults, loadConfig, loadResults } from '../lib/config.js'
 import { getByPath } from '../lib/extract.js'
 import { presetDraft } from '../lib/presets.js'
 import {
@@ -3193,5 +3193,197 @@ test('迁移只在 preset 与地址同厂商时补 OpenAI/Claude 用量请求，
   assert.equal(relay.extraUrl, '', 'preset 与地址不一致时不能把密钥发到 api.openai.com')
   assert.equal(relay.extraFields.length, 0)
   assert.ok(official.extraUrl.includes('/organization/usage/completions'), '同厂商才补 token 用量请求')
+  store.dispose()
+})
+
+// ---------- v0.7.3 审计补丁 ----------
+
+test('截断提示只针对当前模板真正显示的字段（隐藏的订阅字段不吓用户）', () => {
+  const relay = {
+    ...presetDraft('newapi', { base: 'https://sta1n.ai' }),
+    id: 'p_abc12345',
+    name: 'sta1n.ai',
+    secret: 'token',
+    enabled: true,
+  }
+  const form = providerForm(relay)
+  assert.equal(form.clipped, false, '预设服务的隐藏 extraFieldsText 超长不应触发提示')
+  const state = freshState({ formOpen: true, form, editingId: relay.id })
+  state.config.providers.push(relay)
+  assert.ok(!JSON.stringify(panelView(state, FULL_CAPS)).includes('已截断显示'))
+
+  const custom = providerForm(makeProvider({
+    preset: 'custom',
+    detailPaths: Array.from({ length: 6 }, (_, index) => ({ label: `明细${index}`, path: 'x'.repeat(250) })),
+  }))
+  assert.equal(custom.clipped, true, '自定义模板可见字段超长仍然提示')
+})
+
+test('panelData 永远不携带明文密钥（防御纵深）', () => {
+  const state = freshState({ formOpen: true })
+  state.form = { ...emptyForm(), secret: 'sk-typed-but-unsaved', secretSet: false }
+  const data = panelData(state, FULL_CAPS)
+  assert.equal(data.form.secret, '')
+  assert.ok(!JSON.stringify(data).includes('sk-typed-but-unsaved'))
+})
+
+test('卡片状态对非当天结果带日期（不把旧缓存显示成今天）', () => {
+  const state = stateWithProvider()
+  state.results.p_abc12345 = makeResult('p_abc12345', { fetchedAt: FIXED_NOW - 2 * 86400 * 1000 })
+  const card = panelData(state, FULL_CAPS).cards[0]
+  assert.match(card.status, /11-11 09:12/)
+})
+
+test('onChange 带回的未提交值不会把密钥写进 state.form / panelData', async (t) => {
+  const home = await tempHome(t)
+  const { ctx } = fakeHost()
+  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, { data: { quota: 1 } }) })
+  await store.ensureReady()
+  await store.actions.add({}, { locale: 'zh-CN' })
+  await store.actions['choose-template']({}, { locale: 'zh-CN', value: { preset: 'newapi' } })
+  await store.actions['preset-change']({}, {
+    locale: 'zh-CN',
+    value: {
+      value: 'oneapi',
+      values: { 'data.form.siteBase': 'https://relay.example.com', 'data.form.secret': 'sk-TYPED-IN-APP' },
+    },
+  })
+  assert.equal(store.state.form.secret, '')
+  assert.ok(!JSON.stringify(store.panelData({ locale: 'zh-CN' })).includes('sk-TYPED-IN-APP'))
+  await store.actions['auto-unit']({}, {
+    locale: 'zh-CN',
+    value: { values: { 'data.form.secret': 'sk-TYPED-IN-APP-2' } },
+  })
+  assert.equal(store.state.form.secret, '')
+  assert.ok(!JSON.stringify(store.panelData({ locale: 'zh-CN' })).includes('sk-TYPED-IN-APP-2'))
+  store.dispose()
+})
+
+test('自定义服务改明细标签时按路径保住 kind（date 不变成金额）', async (t) => {
+  const home = await tempHome(t)
+  const provider = makeProvider({
+    preset: 'custom',
+    detailPaths: [{ label: '到期', path: 'data.expire', kind: 'date' }],
+  })
+  await saveConfig({ v: 1, providers: [provider], settings: { refreshOnOpen: false, timeoutMs: 12000 } }, configPath(home))
+  const { ctx } = fakeHost()
+  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, { data: { balance: 1 } }) })
+  await store.ensureReady()
+  await store.actions['card-edit']({}, { locale: 'zh-CN', value: { id: provider.id } })
+  await store.actions.save({}, {
+    locale: 'zh-CN',
+    value: { values: { 'data.form.detailText': '到期时间=data.expire', 'data.form.secret': '' } },
+  })
+  const saved = (await loadConfig(configPath(home))).providers[0]
+  assert.equal(saved.detailPaths[0].label, '到期时间')
+  assert.equal(saved.detailPaths[0].kind, 'date')
+  store.dispose()
+})
+
+test('删除服务会中止在途刷新，不再请求被删服务的地址', async (t) => {
+  const home = await tempHome(t)
+  const hosts = ['a', 'b', 'c', 'd', 'e']
+  const providers = hosts.map((host, index) => makeProvider({
+    id: `p_abc0000${index}`,
+    name: host,
+    preset: 'custom',
+    url: `https://${host}.example.com/balance`,
+    balancePath: 'data.quota',
+    detailPaths: [],
+  }))
+  await saveConfig({ v: 1, providers, settings: { refreshOnOpen: false, timeoutMs: 12000 } }, configPath(home))
+  const calls = []
+  const { ctx } = fakeHost()
+  const store = apply(ctx, {
+    home,
+    now: () => FIXED_NOW,
+    fetchImpl: (url) => {
+      calls.push(url)
+      return new Promise((resolve) => setTimeout(() => resolve(response(200, { data: { quota: 1 } })), 80))
+    },
+  })
+  await store.ensureReady()
+  const pending = store.actions.refresh({}, { locale: 'zh-CN' })
+  const promise = pending.result()
+  await waitFor(() => calls.length === 3)
+  await store.actions['card-delete']({}, { locale: 'zh-CN', value: { id: providers[4].id } })
+  await store.actions['card-delete-confirm']({}, { locale: 'zh-CN', value: { id: providers[4].id } })
+  await promise
+  await new Promise((resolve) => setTimeout(resolve, 250))
+  assert.equal(calls.some((url) => url.includes('e.example.com')), false, `仍在请求已删除服务：${calls.join(',')}`)
+  store.dispose()
+})
+
+test('保存途中 dispose 也会把旧结果从 results.json 清掉（重启不复活旧站余额）', async (t) => {
+  const home = await tempHome(t)
+  const provider = makeProvider({ preset: 'custom' })
+  await saveConfig({ v: 1, providers: [provider], settings: { refreshOnOpen: false, timeoutMs: 12000 } }, configPath(home))
+  await saveResults({ v: 1, results: { [provider.id]: makeResult(provider.id) } }, resultsPath(home))
+  const { ctx } = fakeHost()
+  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, { data: { balance: 1 } }) })
+  await store.ensureReady()
+  await store.actions['card-edit']({}, { locale: 'zh-CN', value: { id: provider.id } })
+  const saving = store.actions.save({}, {
+    locale: 'zh-CN',
+    value: { values: { 'data.form.name': '改名', 'data.form.secret': '' } },
+  })
+  store.dispose()
+  const effects = await saving
+  assert.equal(effects.at(-1).text, '已保存')
+  const saved = (await loadConfig(configPath(home))).providers[0]
+  assert.equal(saved.name, '改名')
+  const results = await loadResults(resultsPath(home))
+  assert.equal(Object.hasOwn(results.results, provider.id), false, '旧结果仍在缓存里')
+})
+
+test('已保存配置的 Claude/OpenRouter 字段修正（enriched 也要迁移）', async (t) => {
+  const home = await tempHome(t)
+  const claude = {
+    ...presetDraft('anthropic-cost'),
+    id: 'p_anth0001',
+    name: 'Claude 花费',
+    secret: 'sk-ant-x',
+    enabled: true,
+    enriched: true,
+    extraFields: [
+      { label: '本月输入 Token', path: 'data[].results[].input_tokens', kind: 'count' },
+      { label: '缓存写 Token', path: 'data[].results[].cache_creation.ephemeral_5m_input_tokens', kind: 'count' },
+    ],
+  }
+  const openrouter = {
+    ...presetDraft('openrouter'),
+    id: 'p_open0001',
+    name: 'OpenRouter',
+    secret: 'sk-or-x',
+    enabled: true,
+    enriched: true,
+    detailPaths: [
+      { label: '限额重置', path: 'data.limit_reset', kind: 'date' },
+    ],
+  }
+  await saveConfig({ v: 1, providers: [claude, openrouter], settings: { refreshOnOpen: false, timeoutMs: 12000 } }, configPath(home))
+  const { ctx } = fakeHost()
+  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, {}) })
+  await store.ensureReady()
+  const fixedClaude = store.state.config.providers.find((item) => item.preset === 'anthropic-cost')
+  assert.equal(fixedClaude.extraFields[0].path, 'data[].results[].uncached_input_tokens')
+  assert.match(fixedClaude.extraFields[1].path, /ephemeral_1h_input_tokens/)
+  const fixedRouter = store.state.config.providers.find((item) => item.preset === 'openrouter')
+  assert.equal(fixedRouter.detailPaths[0].kind, 'text')
+  assert.equal(fixedRouter.detailPaths[0].label, '限额重置周期')
+  store.dispose()
+})
+
+test('手动刷新 toast 分开报成功/失败，不把失败算成已更新', async (t) => {
+  const home = await tempHome(t)
+  const provider = makeProvider({ preset: 'custom' })
+  await saveConfig({ v: 1, providers: [provider], settings: { refreshOnOpen: false, timeoutMs: 4000 } }, configPath(home))
+  const { ctx } = fakeHost()
+  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(500, {}) })
+  await store.ensureReady()
+  const action = store.actions.refresh({}, { locale: 'zh-CN' })
+  const effects = await action.result()
+  const toast = effects.find((effect) => effect.type === 'toast')
+  assert.equal(toast.text, '已更新 0 家 · 1 家失败')
   store.dispose()
 })

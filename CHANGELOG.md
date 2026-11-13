@@ -7,14 +7,14 @@
 - **安全**：`/api/status` 货币识别改成独立小预算并给余额请求预留时间，状态接口挂住也不会把余额拖成「请求超时」；迁移只在 preset 与当前地址同厂商时补 OpenAI/Claude 的用量请求，避免手工/旧配置把中转站密钥发到硬编码厂商域名；`validateProvider` 的 `allowSecretReuse` 默认改为拒绝；3xx 的跨域/跳转过多/缺 Location 分支都会取消 body，宿主自动跟随跳转（`redirected`）会被中止；流式读取改为预分配缓冲区（1 字节 chunk 不再放大内存），并与 abort 竞速。
 - **正确性**：保存后旧结果同时从内存和磁盘删除（重启且刷新失败也不会复活旧站余额）；v1/v2 判定改由 view 的 caps 决定（宿主 data 只传 protocol/locale 时不再永远带 rows）；编辑超长旧字段时未改动的字段保存还原原值（不写回截断值），并提示；换站留空密钥失败后保留用户刚填的名称/站点；密钥复用改为「不得出现新的 origin」（删除可选地址不再被卡）；停用服务不再生成空的用量指标；多面板保存后都会收到新数据；后台/手动刷新统一取号，后发起的结果优先；dispose 会中止在途手动请求；preset 表单补「启用」开关，toggle 的 1/on 也认；平台下拉 onChange 会合并 App 带回的未提交字段；自定义「只用量」服务不再被余额路径必填卡住；迁移只做一次（`enriched` 落盘），用户删掉的默认明细不会复活；明细/用量/附加信息标签禁止 `=` 与换行；`formatDay` 支持 YYYYMMDD、纯日期按本地日历、兼容 2001 年前的毫秒；count 不再把 true 显示成 1。
 - **清理**：删除 `maskSecret`/`providerToDraft`/`PRESETS`/`presetOptions`/`formatNumber` 等未用工具、一次性查询包装与残留测试设置；dispose 后不再写缓存，测试临时目录清理加重试（修 CI 偶发 ENOTEMPTY）。
-- 测试 354 项全绿、检查器 0 error。
+- 测试全绿、检查器 0 error。
 
 ### English
 
 - **Security**: the optional `/api/status` currency probe now has its own small budget with time reserved for the balance request; the OpenAI/Claude migration only adds the extra usage request when the configured URL is on the same vendor origin; `allowSecretReuse` now defaults to deny; every 3xx error branch cancels the body and a host that auto-follows redirects (`redirected`) is aborted; streaming reads use a preallocated buffer (1-byte chunks no longer amplify memory) and race the abort signal.
 - **Correctness**: deleting a provider's result on save is now persisted; v1/v2 is decided from the view caps; unchanged over-long edit fields keep their original value on save; a failed secret-reuse save keeps the just-entered name/site; reuse is allowed when no new origin is introduced; disabled services no longer render empty usage metrics; all panels receive new data after a save; background/manual refreshes share a sequence so later-started results win; dispose aborts in-flight manual requests; preset forms gained an enabled toggle and truthy toggles accept 1/on; the platform select onChange merges unsubmitted fields; usage-only custom services are no longer blocked by a required balance path; migration runs once (`enriched` persisted); detail/usage/extra labels reject `=` and newlines; `formatDay` handles YYYYMMDD, local date-only and pre-2001 millisecond timestamps; count no longer renders `true` as 1.
 - **Cleanup**: removed unused `maskSecret`/`providerToDraft`/`PRESETS`/`presetOptions`/`formatNumber` helpers, one-off query wrappers, and stale test settings; no cache writes after dispose, and test temp cleanup retries (fixes an occasional CI ENOTEMPTY).
-- 354 tests green, checker 0 error.
+- All tests green, checker 0 error.
 
 ## 0.7.1
 

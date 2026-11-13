@@ -57,7 +57,7 @@ supported: `a + b`, `a - b` (e.g. cash + gift, subscription total - used).
 |---|---|---|---|
 | DeepSeek | balance (auto ¥/$), card details: top-up and gift balance | `GET /user/balance` | API key |
 | new-api / one-api relay | new-api: balance, 7-day tokens/requests, used quota, total requests, group, subscription remaining/total/used/expiry; older one-api: balance, 7-day tokens/requests, used quota, total requests, group | `/api/user/self`, `/api/data/self` (legacy `/api/user/dashboard`), `/api/subscription/self`, `/api/status` | access token |
-| OpenRouter | remaining limit (— when no key limit), today/month spend, weekly spend, total spend, key limit and reset date | `/api/v1/key` | API key |
+| OpenRouter | remaining limit (— when no key limit), today/month spend, weekly spend, total spend, key limit and reset period (daily/weekly/monthly) | `/api/v1/key` | API key |
 | OpenAI / Claude spend | month spend (Claude is an official estimate, not a balance) plus **monthly input/output tokens and request count** (Claude also cache read/write tokens) | `/v1/organization/costs` + `/v1/organization/usage/completions` / `/v1/organizations/cost_report` + `/v1/organizations/usage_report/messages` | org Admin key / Admin key |
 | OpenCode Go / Command Code | OpenCode: 5h window remaining %, weekly/monthly remaining %, resets; Command Code: monthly credits left, 5h/weekly money left and used, reset times | `/zen/go/v1/usage` / `/alpha/billing/credits` | respective API key |
 
@@ -74,7 +74,9 @@ balances (console only).
 No conversation/clipboard/file access, no model calls, no telemetry, no background polling,
 zero runtime dependencies and no install scripts. Requests only go to the endpoints you configure;
 `/api/status` (currency detection) is unauthenticated. Config/cache files are 0600 / dir 0700 and
-are tightened on load. What it can and cannot protect against is documented in
+are tightened on load. Deleting `config.json` clears the services and keys, but old
+`config.json.bad-*` backups and interrupted `.config.json.*.tmp` files (all 0600) are left behind
+and must be removed by hand. What it can and cannot protect against is documented in
 [SECURITY.md](SECURITY.md).
 
 ## Development

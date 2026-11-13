@@ -477,9 +477,35 @@ test('非 login 鉴权遇到 401 不重试', async () => {
   assert.equal(impl.calls.length, 1)
 })
 
-test('登录失败（非 2xx）返回登录失败文案', async () => {
+test('登录失败：401/403 提示账号密码，5xx/429 保留真实 HTTP 原因', async () => {
+  for (const [status, expected] of [[401, '登录失败，检查账号密码'], [403, '登录失败，检查账号密码'], [500, '对方服务出错（HTTP 500）'], [429, '请求太频繁，稍后再试']]) {
+    const impl = recordingFetch((url) => {
+      if (url === LOGIN_URL) return responseOf(status, {})
+      return responseOf(200, { data: { balance: 1 } })
+    })
+    const runner = createRunner({ fetchImpl: impl })
+    const result = await runner.queryProvider(makeProvider({
+      authType: 'login',
+      username: 'miao',
+      loginUrl: LOGIN_URL,
+      secret: 'pw',
+    }))
+    assert.equal(result.ok, false, String(status))
+    assert.equal(result.error, expected, String(status))
+    assert.equal(impl.calls.filter((call) => call.url !== LOGIN_URL).length, 0)
+  }
+})
+
+test('登录请求遇到跨域跳转时保留防泄露提示，而不是误报账号密码', async () => {
   const impl = recordingFetch((url) => {
-    if (url === LOGIN_URL) return responseOf(500, {})
+    if (url === LOGIN_URL) {
+      return {
+        status: 302,
+        ok: false,
+        headers: { get: (name) => (name === 'location' ? 'https://evil.example.net/steal' : null) },
+        text: async () => '',
+      }
+    }
     return responseOf(200, { data: { balance: 1 } })
   })
   const runner = createRunner({ fetchImpl: impl })
@@ -489,9 +515,8 @@ test('登录失败（非 2xx）返回登录失败文案', async () => {
     loginUrl: LOGIN_URL,
     secret: 'pw',
   }))
-  assert.equal(result.ok, false)
-  assert.equal(result.error, '登录失败，检查账号密码')
-  assert.equal(impl.calls.filter((call) => call.url !== LOGIN_URL).length, 0)
+  assert.equal(result.error, '接口跳转到其它域名，为防密钥泄露已停止')
+  assert.equal(impl.calls.filter((call) => call.url !== LOGIN_URL && call.url.includes('evil')).length, 0)
 })
 
 test('登录响应取不到 token 时返回登录失败文案', async () => {
@@ -1624,10 +1649,10 @@ test('Claude 花费全链路：x-api-key + anthropic-version + ISO 月份 + 分�
         data: [
           {
             results: [{
-              input_tokens: 2000,
+              uncached_input_tokens: 2000,
               output_tokens: 400,
               cache_read_input_tokens: 8000,
-              cache_creation: { ephemeral_5m_input_tokens: 300 },
+              cache_creation: { ephemeral_5m_input_tokens: 300, ephemeral_1h_input_tokens: 200 },
             }],
           },
         ],
@@ -1647,7 +1672,7 @@ test('Claude 花费全链路：x-api-key + anthropic-version + ISO 月份 + 分�
     { label: '本月输入 Token', value: 2000, kind: 'count' },
     { label: '本月输出 Token', value: 400, kind: 'count' },
     { label: '缓存读 Token', value: 8000, kind: 'count' },
-    { label: '缓存写 Token', value: 300, kind: 'count' },
+    { label: '缓存写 Token', value: 500, kind: 'count' },
   ])
   const parsed = new URL(impl.calls[0].url)
   assert.equal(parsed.searchParams.get('starting_at'), isoOf(monthStart))
@@ -2206,4 +2231,42 @@ test('1 字节 HTTP chunk 也只占一块预分配缓冲（结果正确且不超
   const result = await createRunner({ fetchImpl: impl }).queryProvider(makeProvider())
   assert.equal(result.ok, true)
   assert.equal(result.balance, 7)
+})
+
+test('/api/status 返回空/错误 JSON 时不猜测 USD 单位（避免覆盖站内货币）', async () => {
+  const junk = [{}, { success: false, message: 'gateway' }, { data: {} }, { data: null }]
+  for (const [index, payload] of junk.entries()) {
+    const impl = recordingFetch(() => responseOf(200, payload))
+    const unit = await resolveUnit(
+      { url: `https://junk-${index}.example/api/user/self` },
+      { fetchImpl: impl, now: () => 1 },
+    )
+    assert.equal(unit, null, JSON.stringify(payload))
+  }
+  // 有可信字段（one-api 的 quota_per_unit + display_in_currency）时 USD 兜底仍生效
+  const oneapi = await resolveUnit(
+    { url: 'https://oneapi-units.example/api/user/self' },
+    { fetchImpl: recordingFetch(() => responseOf(200, { data: { quota_per_unit: 500000, display_in_currency: true } })), now: () => 1 },
+  )
+  assert.deepEqual(oneapi, { divisor: 500000, multiplier: 1, symbol: '$', decimals: 2 })
+})
+
+test('usageArrayPath 为空时兼容旧版自动找数组（顶层数组 / data 数组）', async () => {
+  const cases = [
+    [[{ token_used: 5 }, { token_used: 6 }], 11],
+    [{ data: [{ token_used: 7 }, { token_used: '2' }] }, 9],
+  ]
+  for (const [payload, expected] of cases) {
+    const impl = balanceAndUsageFetch(responseOf(200, payload))
+    const result = await createRunner({ fetchImpl: impl }).queryProvider(
+      usageProvider({ usageArrayPath: '', usageFields: [{ label: 'Token', path: 'token_used' }] }),
+    )
+    assert.deepEqual(result.usage, [{ label: 'Token', value: expected }], JSON.stringify(payload))
+  }
+})
+
+test('非法请求头由 fetch 抛出时给出可排查的文案', async () => {
+  const impl = async () => { throw new TypeError('Headers.append: "a b" is an invalid header name.') }
+  const result = await createRunner({ fetchImpl: impl }).queryProvider(makeProvider())
+  assert.equal(result.error, '请求头或令牌格式不合法，检查自定义请求头')
 })

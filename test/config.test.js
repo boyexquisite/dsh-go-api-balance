@@ -764,3 +764,22 @@ test('loadResults 忽略 __proto__ 等危险 id', async (t) => {
   assert.equal(Object.keys(loaded.results).length, 1)
   assert.equal(loaded.results.p_ok000001.balance, 3)
 })
+
+// ---------- 请求头校验（v0.7.3 审计补丁） ----------
+
+test('请求头名称/值做字符集校验：拒绝空格、换行和请求库自管头', () => {
+  expectError(validDraft({ secretHeader: 'X Evil' }), 'secretHeader', /请求头名称/)
+  expectError(validDraft({ secretHeader: 'Host' }), 'secretHeader', /不能是 Host/)
+  expectError(validDraft({ authType: 'login', username: 'u', loginUrl: 'https://api.example.com/login', tokenHeader: 'Content-Length' }), 'tokenHeader', /不能是 Content-Length/)
+  expectError(validDraft({ authType: 'login', username: 'u', loginUrl: 'https://api.example.com/login', tokenPrefix: 'Bearer\r\nX-Evil: 1' }), 'tokenPrefix', /令牌前缀/)
+  expectError(validDraft({ secret: 'sk-abc\nX-Evil: 1' }), 'secret', /不能含换行/)
+  expectError(validDraft({ headersText: '{"X-Test":"a\\rb"}' }), 'headersText', /不能含换行/)
+  expectError(validDraft({ headersText: '{"Bad Name":"x"}' }), 'headersText', /名称/)
+  expectError(validDraft({ headersText: '{"Host":"evil"}' }), 'headersText', /不能是 Host/)
+  // 正常的自定义头（new-api 常见的 New-Api-User）仍然允许
+  const ok = validateProvider(validDraft({
+    secretHeader: 'X-Api-Key',
+    headersText: '{"New-Api-User":"42","X-Trace-Id":"a-b_c.d"}',
+  }))
+  assert.equal(ok.ok, true, JSON.stringify(ok.errors))
+})

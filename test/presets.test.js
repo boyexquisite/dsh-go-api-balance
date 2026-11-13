@@ -332,8 +332,8 @@ test('openrouter 预设字段严格符合 spec', () => {
     { label: '本月花费', path: 'data.usage_monthly' },
   ])
   assert.equal(draft.usageScale, true)
-  assert.deepEqual(draft.detailPaths.map((row) => row.label), ['本周花费', '累计花费', '消费限额', '限额重置'])
-  assert.equal(draft.detailPaths[3].kind, 'date')
+  assert.deepEqual(draft.detailPaths.map((row) => row.label), ['本周花费', '累计花费', '消费限额', '限额重置周期'])
+  assert.equal(draft.detailPaths[3].kind, 'text', 'limit_reset 是 daily/weekly/monthly 周期枚举，不是日期')
   assert.equal(draft.divisor, 1)
   assert.equal(draft.multiplier, 1)
   assert.equal(draft.symbol, '$')
@@ -390,6 +390,14 @@ test('anthropic-cost 预设：header 鉴权 + ISO 占位符 + 分→元 divisor 
   assert.equal(draft.usageScale, true)
   assert.equal(draft.divisor, 100)
   assert.equal(draft.symbol, '$')
+  // 官方 usage_report/messages 的输入字段是 uncached_input_tokens；缓存写要算 5m+1h 两档。
+  assert.equal(draft.extraFields[0].path, 'data[].results[].uncached_input_tokens')
+  assert.equal(
+    draft.extraFields[3].path,
+    'data[].results[].cache_creation.ephemeral_5m_input_tokens + data[].results[].cache_creation.ephemeral_1h_input_tokens',
+  )
+  const checked = validateProvider({ ...draft, secret: 'sk-ant-admin-test' })
+  assert.equal(checked.ok, true, JSON.stringify(checked.errors))
 })
 
 test('anthropic-cost 草稿可通过校验', () => {

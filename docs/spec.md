@@ -284,7 +284,7 @@ export function presetOptions() // → [{ label, value }] 给 UI 选项（含 cu
 |---|---|---|
 | `usageUrl` | string | ≤512（表单 maxLength 300）；`http(s)` 开头；支持占位符 `{now}`（当前 epoch 秒）、`{today}`（本地当天 00:00 epoch 秒）、`{7d}`（now-7×86400） |
 | `usageMethod` | `'GET'\|'POST'` | 默认 `GET` |
-| `usageArrayPath` | string | ≤120（表单 40）；JSON 路径；空 = 自动（响应是数组用它，否则取 `data` 数组，再否则第一个数组） |
+| `usageArrayPath` | string | ≤120（表单 40）；JSON 路径；空 = 先对整份 JSON 求表达式（支持 `[]` 与 +/−），取不到再按旧版自动找数组（顶层数组 → `data` 数组 → 第一个数组） |
 | `usageFields` | `[{label, path}]` | ≤4 项；label 1–20 字；path 合法；对数组每项按 path 取数**求和**，标量则直接取 |
 | `usageScale` | boolean | 默认 false；true = 数值按 provider 的 divisor/multiplier/symbol 格式化（额度类），false = 原始计数（Token/请求数） |
 | `usageFieldsText` | 仅表单用（不落盘） | 每行 `标签=路径`，最多 4 行；保存时解析成 `usageFields` |
@@ -524,7 +524,7 @@ export function presetOptions() // → [{ label, value }] 给 UI 选项（含 cu
 
 1. **URL 占位符**（provider.url 与 usageUrl 都替换）：`{now}`、`{today}`、`{7d}`、`{month_start}`（本地时区 epoch 秒）；`{now_iso}`、`{today_iso}`、`{7d_iso}`、`{month_start_iso}`（RFC3339 UTC，如 `2026-11-01T00:00:00Z`）。本地时区用运行主机时区。
 2. **嵌套数组求和**：新增 `sumByPath(obj, path)`，路径支持 `[]` 通配：`data[].results[].amount.value`，对命中的数值（含数字字符串）求和；无 `[]` 时等价单值。`usageFields` 一律用 sumByPath 取值。
-3. **同响应取用量**：`usageFields` 非空且 `usageUrl` 为空 → 直接从余额那次响应解析 usage（不额外请求）。`usageArrayPath` 为空时对整份 JSON 用 sumByPath；非空时若解析为数组则逐项求和、对象则单对象取值。
+3. **同响应取用量**：`usageFields` 非空且 `usageUrl` 为空 → 直接从余额那次响应解析 usage（不额外请求）。`usageArrayPath` 为空时先对整份 JSON 用 sumByPath，取不到再回退旧版「自动找数组」逐项求和；非空时若解析为数组则逐项求和、对象则单对象取值。
 4. **只用量的服务**：允许 `balancePath` 为空（必须至少 1 个 usageFields）：只发一次 `provider.url` 请求（鉴权照常），`Result.ok=true`、`balance=null`，usage 照常。
 5. **可空余额**：Provider 新增 `balanceOptional: boolean`（默认 false）；`true` 时 `balancePath` 解析为 null 不视为失败（ok=true、balance=null），供 OpenRouter「未设限额」用。
 6. `newapi` 预设的 detailPaths 增加 `{label:'订阅额度', path:'data.subscription_quota'}`（老站没该字段时该行会缺失，展示层过滤）。
@@ -571,7 +571,7 @@ export function presetOptions() // → [{ label, value }] 给 UI 选项（含 cu
 ### 20.4 测试
 
 - 327 项 `node --test` 全绿；检查器 0 error。
-- 真实接口验证：DeepSeek `¥270.08`；STA1N `🍪4,190.37`、近 7 天 Token 15.6 亿 / 请求 6,945，`/api/subscription/self` 200 空订阅 → 订阅行不显示。
+- 真实接口验证：DeepSeek / STA1N 的余额与用量解析正确，`/api/subscription/self` 200 空订阅 → 订阅行不显示（不在公开仓库记录具体余额）。
 
 
 ## 21. v0.3.0：安全加固与「通用」补全
@@ -667,7 +667,7 @@ export function presetOptions() // → [{ label, value }] 给 UI 选项（含 cu
 - 卡片新增一行「最多 2 条明细」：先放附加请求（订阅等 `extra`），再补 `details`；完整列表仍在菜单。
 - 预设补字段：
   - `newapi` / `oneapi`：`details` 增「累计请求」（`data.request_count`，count）、「用户组」（`data.group`，text）。
-  - `openrouter`：`details` 增「本周花费」`usage_weekly`、「累计花费」`usage`、「消费限额」`limit`、「限额重置」`limit_reset`（date）。
+  - `openrouter`：`details` 增「本周花费」`usage_weekly`、「累计花费」`usage`、「消费限额」`limit`、「限额重置周期」`limit_reset`（text；字段是 daily/weekly/monthly 周期枚举，不是日期）。
   - `openai-cost`：`extraUrl` 指向 `/v1/organization/usage/completions`（`{month_start}`/`{now}`、`limit=31`），`extraFields` 为输入/输出 Token、请求数（count）。
   - `anthropic-cost`：`extraUrl` 指向 `/v1/organizations/usage_report/messages`（ISO 占位符、`limit=31`），`extraFields` 为输入/输出、缓存读/缓存写 Token（count）。
   - `commandcode`：`details` 增「5小时已用」「本周已用」（`windowLimits.*.used`）。
@@ -756,4 +756,31 @@ export function presetOptions() // → [{ label, value }] 给 UI 选项（含 cu
 
 ### 29.3 测试
 
-- 355 项全绿、checker 0 error。新增：unit 饥饿、3xx 各错误分支 cancel、redirected、queryAll 总预算、1 字节 chunk、保存后重启、v2 判定、超长旧字段还原、换站保留输入、复用范围、停用 metric、多面板广播、双刷新取号、dispose 中止、preset 启用、onChange 合并、只用量的保存、迁移 origin、enriched 落盘、标签校验、`__proto__`、共享通配预算、formatDay/format count。
+- 测试全绿、checker 0 error。新增：unit 饥饿、3xx 各错误分支 cancel、redirected、queryAll 总预算、1 字节 chunk、保存后重启、v2 判定、超长旧字段还原、换站保留输入、复用范围、停用 metric、多面板广播、双刷新取号、dispose 中止、preset 启用、onChange 合并、只用量的保存、迁移 origin、enriched 落盘、标签校验、`__proto__`、共享通配预算、formatDay/format count。
+
+## 30. v0.7.3 审计补丁
+
+审查范围：代码 / 功能 / 安全，含独立安全与功能双审。无 Critical/High；以下为确认问题与修法。
+
+### 30.1 安全 / 数据
+
+- **密钥不进 panelData**：`onChange` 的未提交值不再合并 `data.form.secret`（`mergeFormValues` 默认跳过，保存路径显式放行）；`panelData` 额外做一次防御性清空，`data.form.secret` 恒为空串。
+- **保存/删除中止在途刷新**：配置版本号 +1 后立刻 abort 后台刷新与所有手动刷新控制器，删除服务后不会再被旧快照请求一次；新配置的刷新由保存流程重新发起。
+- **保存/删除途中的结果删除强制落盘**：`persistResults({force:true})` 突破 dispose 守卫，避免「config 已删、results.json 还留旧结果」在重启后复活旧站余额（后台刷新仍遵守 dispose 后不写）。
+- **请求头校验**：`secretHeader`/`tokenHeader` 必须是 RFC 7230 token 且不能是 Host/Content-Length/Transfer-Encoding/Connection 等自管头；`secret`/`tokenPrefix`/自定义头值拒绝 CR/LF/NUL；fetch 的 invalid header TypeError 映射成「请求头或令牌格式不合法」。
+- **登录错误分类**：登录端点 401/403 才提示「登录失败，检查账号密码」；429/5xx 用真实 HTTP 原因；跳转/协议/响应过大等 QueryError 原样透出。
+- **/api/status 反代成 200 空 JSON 时不猜 USD**：必须有 `quota_display_type` 之外的 `display_in_currency` 布尔或数字 `quota_per_unit` 才走兜底，否则返回 null 用模板单位，避免把站内 ¥/🍪 显示成 $。
+- **文档**：README/SECURITY 补充 `.bad-*`/`.tmp` 残留与「https 不限制内网地址」；公开 spec 去掉真实余额快照。
+
+### 30.2 功能 / 正确性
+
+- **Claude 花费**：输入 token 字段改为官方的 `uncached_input_tokens`；缓存写改为 5m+1h 两档求和；老配置在 `enriched` 为 true 时也会迁移。
+- **OpenRouter**：`limit_reset` 是 daily/weekly/monthly 周期枚举，明细改 `kind:'text'`、标签「限额重置周期」；老配置迁移。
+- **截断提示**：`providerForm` 只对当前模板真正显示的字段报「已截断」；new-api/花费类模板的隐藏订阅字段超长不再吓用户。
+- **卡片状态**：非当天结果显示日期（`MM-DD HH:mm`），不再把几天前的缓存显示成「今天 09:12」。
+- **kind 稳定**：自定义明细/附加字段按 path 优先找回 kind，改标签不再把 date/count 变成 money。
+- **旧用量配置兼容**：`usageArrayPath` 为空且普通路径取不到时，回退旧版自动找数组（顶层数组 → data 数组 → 第一个数组），v1.1 配置不静默丢用量。
+
+### 30.3 测试
+
+- 366 项全绿、checker 0 error；新增：junk status 单位回退、usage 自动数组、header 校验、非法 header 文案、登录 4xx/5xx/跨域、密钥不入 panelData、中止在途刷新、dispose 强制落盘、预设字段迁移、kind 保活、截断提示、卡片日期。

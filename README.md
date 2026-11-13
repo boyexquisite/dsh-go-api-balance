@@ -55,7 +55,7 @@ dsh plugin --profile web add ./dsh-go-api-balance
 |---|---|---|---|
 | DeepSeek 官方 | 余额（自动 ¥/$）、卡片明细：充值余额、赠送余额 | `GET /user/balance` | API Key |
 | new-api / one-api 中转 | new-api：余额、近 7 天 Token/请求、已用额度、累计请求、用户组、**订阅剩余/总量/已用/到期**；one-api 旧站：余额、近 7 天 Token/请求、已用额度、累计请求、用户组 | `/api/user/self` + `/api/data/self`（旧站 `/api/user/dashboard`）+ `/api/subscription/self` + `/api/status` | 系统访问令牌 |
-| OpenRouter | 剩余额度（没设消费限额时显示 —）、今日/本月花费、本周花费、累计花费、消费限额与重置日期 | `/api/v1/key` | API Key |
+| OpenRouter | 剩余额度（没设消费限额时显示 —）、今日/本月花费、本周花费、累计花费、消费限额与重置周期（daily/weekly/monthly） | `/api/v1/key` | API Key |
 | OpenAI / Claude 花费 | 本月花费（Claude 为官方估算值，不是余额）+ **本月输入/输出 Token、请求数**（Claude 另含缓存读/写 Token） | `/v1/organization/costs` + `/v1/organization/usage/completions` / `/v1/organizations/cost_report` + `/v1/organizations/usage_report/messages` | 组织 Admin key / Admin key |
 | OpenCode Go / Command Code | OpenCode：5 小时窗口剩余 %、本周/本月剩余 %、各窗口重置日期；Command Code：本月剩余额度、5h/本周剩余金额与已用、重置时间 | `/zen/go/v1/usage` / `/alpha/billing/credits` | 各自 API Key |
 
@@ -90,7 +90,7 @@ dsh plugin --profile web add ./dsh-go-api-balance
 
 - 配置：`$DSH_HOME/cache/dsh-go-api-balance/config.json`（0600）
 - 余额缓存：`$DSH_HOME/cache/dsh-go-api-balance/results.json`（0600）
-- 删掉配置即清空全部服务与密钥。
+- 删掉配置即清空全部服务与密钥；同目录下坏配置备份 `config.json.bad-*` 和写盘中断残留的 `.config.json.*.tmp` 不会自动清理（都是 0600），需要手动删。
 
 ## 开发
 
