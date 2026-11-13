@@ -1,6 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createRunner, queryProvider, queryAll, resolveUsageUrl, resolveUnit } from '../lib/query.js'
+import { presetDraft } from '../lib/presets.js'
+import { validateProvider } from '../lib/config.js'
 
 const LOGIN_URL = 'https://api.example.com/login'
 
@@ -780,18 +782,18 @@ test('login 鉴权时用量请求复用 token 缓存，不重复登录', async (
   assert.equal(usageCall.init.headers.Authorization, 'Bearer tok-1')
 })
 
-test('用量自动取数组：响应数组 → data 数组 → 第一个数组', async () => {
+test('用量 usageArrayPath 为空时对整份响应 JSON 用 sumByPath', async () => {
   const cases = [
-    [[{ token_used: 7 }], 7],
-    [{ data: [{ token_used: 8 }] }, 8],
-    [{ code: 0, list: [{ token_used: 9 }] }, 9],
+    [{ data: [{ token_used: 7 }, { token_used: 2 }] }, 'data[].token_used', 9],
+    [{ data: { buckets: [{ tokens: 1 }, { tokens: '2' }] } }, 'data.buckets[].tokens', 3],
+    [{ root: 4 }, 'root', 4],
   ]
-  for (const [payload, expected] of cases) {
+  for (const [payload, fieldPath, expected] of cases) {
     const impl = balanceAndUsageFetch(responseOf(200, payload))
     const runner = createRunner({ fetchImpl: impl })
     const result = await runner.queryProvider(usageProvider({
       usageArrayPath: '',
-      usageFields: [{ label: 'Token', path: 'token_used' }],
+      usageFields: [{ label: 'Token', path: fieldPath }],
     }))
     assert.deepEqual(result.usage, [{ label: 'Token', value: expected }], JSON.stringify(payload))
   }
@@ -1405,4 +1407,303 @@ test('queryAll：autoUnit newapi 的 Result 各自带 unit', async () => {
   ])
   assert.deepEqual(results[0].unit, { divisor: 1, multiplier: 1, symbol: '', decimals: 0 })
   assert.equal(results[1].unit, null)
+})
+
+// ---------- v1.9 引擎扩展 ----------
+
+function isoOf (ms) {
+  return new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z')
+}
+
+test('resolveUsageUrl 支持 {month_start} 与 ISO 系列（本地时区 / RFC3339 UTC）', () => {
+  const at = new Date(2026, 10, 13, 9, 30, 0).getTime()
+  const today = new Date(2026, 10, 13, 0, 0, 0).getTime()
+  const monthStart = new Date(2026, 10, 1, 0, 0, 0).getTime()
+  const weekAgo = at - 7 * 86400 * 1000
+  const provider = {
+    usageUrl: 'https://x.example/u?n={now}&t={today}&w={7d}&m={month_start}'
+      + '&ni={now_iso}&ti={today_iso}&wi={7d_iso}&mi={month_start_iso}',
+  }
+  const expected = 'https://x.example/u'
+    + `?n=${Math.floor(at / 1000)}&t=${Math.floor(today / 1000)}&w=${Math.floor(weekAgo / 1000)}&m=${Math.floor(monthStart / 1000)}`
+    + `&ni=${encodeURIComponent(isoOf(at))}&ti=${encodeURIComponent(isoOf(today))}&wi=${encodeURIComponent(isoOf(weekAgo))}&mi=${encodeURIComponent(isoOf(monthStart))}`
+  const actual = resolveUsageUrl(provider, at)
+  const actualUrl = new URL(actual)
+  const expectedUrl = new URL(expected)
+  assert.deepEqual(actualUrl.searchParams, expectedUrl.searchParams)
+  assert.match(isoOf(at), /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/)
+})
+
+test('provider.url 的占位符在请求前替换（含 ISO）', async () => {
+  const at = new Date(2026, 10, 13, 9, 30, 0).getTime()
+  const monthStart = new Date(2026, 10, 1, 0, 0, 0).getTime()
+  const impl = recordingFetch(() => responseOf(200, { data: { balance: 1, usage_daily: 0.5 } }))
+  const runner = createRunner({ fetchImpl: impl, now: () => at })
+  const provider = makeProvider({
+    url: 'https://api.example.com/costs?start={month_start}&end={now}&iso={month_start_iso}&today={today}',
+    balancePath: 'data.balance',
+    usageUrl: '',
+    usageArrayPath: '',
+    usageFields: [{ label: '今日花费', path: 'data.usage_daily' }],
+  })
+  const result = await runner.queryProvider(provider)
+  assert.equal(result.ok, true)
+  assert.deepEqual(result.usage, [{ label: '今日花费', value: 0.5 }])
+  const parsed = new URL(impl.calls[0].url)
+  assert.equal(parsed.searchParams.get('start'), String(Math.floor(monthStart / 1000)))
+  assert.equal(parsed.searchParams.get('end'), String(Math.floor(at / 1000)))
+  assert.equal(parsed.searchParams.get('iso'), isoOf(monthStart))
+  assert.equal(parsed.searchParams.get('today'), String(Math.floor(new Date(2026, 10, 13).getTime() / 1000)))
+})
+
+test('同响应用量：usageUrl 空 + usageFields 时从余额响应解析，不发第二次请求', async () => {
+  const impl = recordingFetch(() => responseOf(200, {
+    data: {
+      balance: 12,
+      usage_daily: 0.5,
+      results: [{ amount: { value: 1 } }, { amount: { value: '2' } }],
+    },
+  }))
+  const runner = createRunner({ fetchImpl: impl })
+  const result = await runner.queryProvider(makeProvider({
+    balancePath: 'data.balance',
+    usageUrl: '',
+    usageArrayPath: '',
+    usageFields: [
+      { label: '本月花费', path: 'data.results[].amount.value' },
+      { label: '今日花费', path: 'data.usage_daily' },
+    ],
+    usageScale: true,
+  }))
+  assert.equal(result.ok, true)
+  assert.equal(result.balance, 12)
+  assert.deepEqual(result.usage, [
+    { label: '本月花费', value: 3 },
+    { label: '今日花费', value: 0.5 },
+  ])
+  assert.equal(impl.calls.length, 1)
+})
+
+test('同响应用量：usageArrayPath 非空时数组逐项求和、对象单对象取值', async () => {
+  const arrayImpl = recordingFetch(() => responseOf(200, {
+    data: { balance: 1 },
+    usage: [{ tokens: 2 }, { tokens: '3' }, {}],
+  }))
+  const arrayRunner = createRunner({ fetchImpl: arrayImpl })
+  const arrayResult = await arrayRunner.queryProvider(makeProvider({
+    usageUrl: '',
+    usageArrayPath: 'usage',
+    usageFields: [{ label: 'Token', path: 'tokens' }],
+  }))
+  assert.deepEqual(arrayResult.usage, [{ label: 'Token', value: 5 }])
+
+  const objectImpl = recordingFetch(() => responseOf(200, {
+    data: { balance: 1 },
+    usage: { tokens: 4 },
+  }))
+  const objectRunner = createRunner({ fetchImpl: objectImpl })
+  const objectResult = await objectRunner.queryProvider(makeProvider({
+    usageUrl: '',
+    usageArrayPath: 'usage',
+    usageFields: [{ label: 'Token', path: 'tokens' }],
+  }))
+  assert.deepEqual(objectResult.usage, [{ label: 'Token', value: 4 }])
+
+  const missingImpl = recordingFetch(() => responseOf(200, { data: { balance: 1 } }))
+  const missingRunner = createRunner({ fetchImpl: missingImpl })
+  const missingResult = await missingRunner.queryProvider(makeProvider({
+    usageUrl: '',
+    usageArrayPath: 'usage',
+    usageFields: [{ label: 'Token', path: 'tokens' }],
+  }))
+  assert.deepEqual(missingResult.usage, [])
+})
+
+test('同响应用量：余额解析失败但 JSON 有效时仍解析 usage', async () => {
+  const impl = recordingFetch(() => responseOf(200, {
+    data: { usage_daily: 0.75 },
+  }))
+  const runner = createRunner({ fetchImpl: impl })
+  const result = await runner.queryProvider(makeProvider({
+    balancePath: 'data.missing',
+    usageUrl: '',
+    usageArrayPath: '',
+    usageFields: [{ label: '今日花费', path: 'data.usage_daily' }],
+  }))
+  assert.equal(result.ok, false)
+  assert.equal(result.error, '解析不到余额字段，检查取值路径')
+  assert.deepEqual(result.usage, [{ label: '今日花费', value: 0.75 }])
+})
+
+test('同响应用量：HTTP 失败时 usage 为空且只发一次请求', async () => {
+  const impl = recordingFetch(() => responseOf(500, {}))
+  const runner = createRunner({ fetchImpl: impl })
+  const result = await runner.queryProvider(makeProvider({
+    usageUrl: '',
+    usageArrayPath: '',
+    usageFields: [{ label: '今日花费', path: 'data.usage_daily' }],
+  }))
+  assert.equal(result.ok, false)
+  assert.deepEqual(result.usage, [])
+  assert.equal(impl.calls.length, 1)
+})
+
+test('同响应用量 + preview：rawPreview 是余额响应、usage 照常解析', async () => {
+  const payload = { data: { balance: 2, usage_daily: 1.5 } }
+  const impl = recordingFetch(() => responseOf(200, payload))
+  const runner = createRunner({ fetchImpl: impl })
+  const result = await runner.queryProvider(makeProvider({
+    usageUrl: '',
+    usageArrayPath: '',
+    usageFields: [{ label: '今日花费', path: 'data.usage_daily' }],
+  }), { preview: true })
+  assert.equal(result.rawPreview, JSON.stringify(payload))
+  assert.deepEqual(result.usage, [{ label: '今日花费', value: 1.5 }])
+})
+
+test('只用量的服务：balancePath 为空时 ok=true、balance=null、usage 正常', async () => {
+  const impl = recordingFetch(() => responseOf(200, {
+    data: [
+      { results: [{ amount: { value: 0.5 } }, { amount: { value: 1.25 } }] },
+      { results: [{ amount: { value: 2 } }] },
+    ],
+  }))
+  const runner = createRunner({ fetchImpl: impl })
+  const result = await runner.queryProvider(makeProvider({
+    balancePath: '',
+    usageUrl: '',
+    usageArrayPath: '',
+    usageFields: [{ label: '本月花费', path: 'data[].results[].amount.value' }],
+    usageScale: true,
+  }))
+  assert.equal(result.ok, true)
+  assert.equal(result.balance, null)
+  assert.equal(result.error, null)
+  assert.deepEqual(result.usage, [{ label: '本月花费', value: 3.75 }])
+  assert.equal(impl.calls.length, 1)
+})
+
+test('只用量的服务：HTTP / 非 JSON 失败照常报错，usage 为空', async () => {
+  const httpRunner = createRunner({ fetchImpl: recordingFetch(() => responseOf(401, {})) })
+  const httpResult = await httpRunner.queryProvider(makeProvider({ balancePath: '', usageUrl: '' }))
+  assert.equal(httpResult.ok, false)
+  assert.equal(httpResult.error, '密钥或令牌无效')
+  assert.deepEqual(httpResult.usage, [])
+
+  const textRunner = createRunner({ fetchImpl: recordingFetch(() => responseOf(200, 'nope')) })
+  const textResult = await textRunner.queryProvider(makeProvider({ balancePath: '', usageUrl: '' }))
+  assert.equal(textResult.ok, false)
+  assert.equal(textResult.error, '返回的不是 JSON')
+})
+
+test('balanceOptional=true：余额为 null / 缺失时 ok=true、balance=null', async () => {
+  for (const payload of [
+    { data: { limit_remaining: null } },
+    { data: {} },
+  ]) {
+    const impl = recordingFetch(() => responseOf(200, payload))
+    const runner = createRunner({ fetchImpl: impl })
+    const result = await runner.queryProvider(makeProvider({
+      balancePath: 'data.limit_remaining',
+      balanceOptional: true,
+    }))
+    assert.equal(result.ok, true, JSON.stringify(payload))
+    assert.equal(result.balance, null)
+    assert.equal(result.error, null)
+  }
+})
+
+test('balanceOptional=false：余额 null/缺失仍然失败', async () => {
+  const nullImpl = recordingFetch(() => responseOf(200, { data: { limit_remaining: null } }))
+  const nullResult = await createRunner({ fetchImpl: nullImpl }).queryProvider(makeProvider({
+    balancePath: 'data.limit_remaining',
+  }))
+  assert.equal(nullResult.ok, false)
+  assert.equal(nullResult.error, '余额不是数字')
+
+  const missingImpl = recordingFetch(() => responseOf(200, { data: {} }))
+  const missingResult = await createRunner({ fetchImpl: missingImpl }).queryProvider(makeProvider({
+    balancePath: 'data.limit_remaining',
+  }))
+  assert.equal(missingResult.ok, false)
+  assert.equal(missingResult.error, '解析不到余额字段，检查取值路径')
+})
+
+test('balanceOptional=true 但余额是非数字字符串时仍报余额不是数字', async () => {
+  const impl = recordingFetch(() => responseOf(200, { data: { limit_remaining: 'abc' } }))
+  const runner = createRunner({ fetchImpl: impl })
+  const result = await runner.queryProvider(makeProvider({
+    balancePath: 'data.limit_remaining',
+    balanceOptional: true,
+  }))
+  assert.equal(result.ok, false)
+  assert.equal(result.error, '余额不是数字')
+})
+
+test('OpenRouter 全链路：limit_remaining=null 时 ok、显示花费', async () => {
+  const provider = validateProvider({
+    ...presetDraft('openrouter'),
+    secret: 'sk-or-test',
+  }).provider
+  const impl = recordingFetch(() => responseOf(200, {
+    data: { limit_remaining: null, usage_daily: 0.52, usage_monthly: 12.34 },
+  }))
+  const runner = createRunner({ fetchImpl: impl })
+  const result = await runner.queryProvider(provider)
+  assert.equal(result.ok, true)
+  assert.equal(result.balance, null)
+  assert.equal(result.symbol, '$')
+  assert.deepEqual(result.usage, [
+    { label: '今日花费', value: 0.52 },
+    { label: '本月花费', value: 12.34 },
+  ])
+  assert.equal(impl.calls.length, 1)
+})
+
+test('OpenAI 花费全链路：占位符替换 + 嵌套数组求和', async () => {
+  const at = new Date(2026, 10, 13, 9, 30, 0).getTime()
+  const monthStart = new Date(2026, 10, 1, 0, 0, 0).getTime()
+  const provider = validateProvider({
+    ...presetDraft('openai-cost'),
+    secret: 'sk-admin-test',
+  }).provider
+  const impl = recordingFetch(() => responseOf(200, {
+    data: [
+      { results: [{ amount: { value: 0.5 } }, { amount: { value: 1.25 } }] },
+      { results: [{ amount: { value: 2 } }] },
+    ],
+  }))
+  const runner = createRunner({ fetchImpl: impl, now: () => at })
+  const result = await runner.queryProvider(provider)
+  assert.equal(result.ok, true)
+  assert.equal(result.balance, null)
+  assert.deepEqual(result.usage, [{ label: '本月花费', value: 3.75 }])
+  const parsed = new URL(impl.calls[0].url)
+  assert.equal(parsed.searchParams.get('start_time'), String(Math.floor(monthStart / 1000)))
+  assert.equal(parsed.searchParams.get('end_time'), String(Math.floor(at / 1000)))
+  assert.equal(parsed.searchParams.get('bucket_width'), '1d')
+  assert.equal(impl.calls[0].init.headers.Authorization, 'Bearer sk-admin-test')
+})
+
+test('Claude 花费全链路：x-api-key + anthropic-version + ISO 月份 + 分为单位', async () => {
+  const at = new Date(2026, 10, 13, 9, 30, 0).getTime()
+  const monthStart = new Date(2026, 10, 1, 0, 0, 0).getTime()
+  const provider = validateProvider({
+    ...presetDraft('anthropic-cost'),
+    secret: 'sk-ant-test',
+  }).provider
+  const impl = recordingFetch(() => responseOf(200, {
+    data: [{ results: [{ amount: 100 }, { amount: 50 }] }],
+  }))
+  const runner = createRunner({ fetchImpl: impl, now: () => at })
+  const result = await runner.queryProvider(provider)
+  assert.equal(result.ok, true)
+  assert.equal(result.balance, null)
+  assert.deepEqual(result.usage, [{ label: '本月花费', value: 150 }])
+  assert.equal(provider.divisor, 100)
+  const parsed = new URL(impl.calls[0].url)
+  assert.equal(parsed.searchParams.get('starting_at'), isoOf(monthStart))
+  assert.equal(impl.calls[0].init.headers['x-api-key'], 'sk-ant-test')
+  assert.equal(impl.calls[0].init.headers['anthropic-version'], '2023-06-01')
+  assert.equal(impl.calls[0].init.headers.Authorization, undefined)
 })

@@ -26,6 +26,8 @@ dsh plugin --profile web add dsh-go-api-balance
 2. 按类型填关键项：
    - **DeepSeek 官方**：只要 API Key（名称/接口/字段全自动）。
    - **new-api / one-api 中转**：站点地址（`https://sta1n.ai` 或接入地址 `https://sta1n.ai/v1` 都行，`/v1` 会自动去掉）+ 访问令牌；货币符号和乘数按站点调（默认 ¥ / 1，STA1N 是 🍪 / 10）。余额和近 7 天用量都自动读。
+   - **Kimi / Moonshot**、**小米 MiMo**：只填 API Key（Kimi 可选国内/海外）。
+   - **OpenRouter**：只填 API Key；**OpenAI 花费**、**Claude 花费**：填组织 Admin key，只显示本月花费（不是余额）。
    - **自定义**：常用页签填地址/鉴权/密钥/余额路径，其余路径收在「高级」页签。
 3. 保存后自动刷新，不用再点「刷新」；以后打开面板也会自动更新。
 
@@ -38,6 +40,9 @@ dsh plugin --profile web add dsh-go-api-balance
 | DeepSeek | `https://api.deepseek.com/user/balance` | Bearer | `balance_infos[0].total_balance` | 原值 |
 | Kimi / Moonshot | `api.moonshot.cn|.ai/v1/users/me/balance` | Bearer | `data.available_balance` | 原值（.cn 是 ¥、.ai 是 $） |
 | 小米 MiMo | `api.xiaomimimo.com/v1/platform/balance` | Bearer | `balance_infos[0].total_available` | 原值 |
+| OpenRouter | `openrouter.ai/api/v1/key` | Bearer | `data.limit_remaining` | 无消费限额时余额显示 —，今日/本月花费照常 |
+| OpenAI 花费 | `api.openai.com/v1/organization/costs` | Admin key | 无余额，只有本月花费 | 本月花费（USD） |
+| Claude 花费 | `api.anthropic.com/v1/organizations/cost_report` | Admin key（`x-api-key`） | 无余额，只有本月花费 | 本月花费（估算，USD） |
 | new-api / one-api | `<站点>/api/user/self` | Bearer（站点访问令牌） | `data.quota` | 自动读站点 `/api/status` 的货币与汇率（也可手动关掉） |
 | ↑ 的用量 | `<站点>/api/data/self?start_timestamp={7d}&end_timestamp={now}&default_time=day` | 同上 | 数组 `data` 里 `token_used`/`count` 求和 | 原值 |
 

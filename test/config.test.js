@@ -107,7 +107,7 @@ test('validateProvider 接受完整合法草稿并补齐默认值', () => {
   const provider = result.provider
   assert.match(provider.id, /^p_[a-z0-9]{6,12}$/)
   assert.deepEqual(Object.keys(provider).sort(), [
-    'authType', 'autoUnit', 'balancePath', 'bodyText', 'currencyPath', 'decimals', 'detailPaths',
+    'authType', 'autoUnit', 'balanceOptional', 'balancePath', 'bodyText', 'currencyPath', 'decimals', 'detailPaths',
     'divisor', 'enabled', 'headersText', 'id', 'loginUrl', 'method', 'multiplier',
     'name', 'preset', 'secret', 'secretHeader', 'secretParam', 'symbol', 'tokenHeader',
     'tokenPath', 'tokenPrefix', 'url', 'usageArrayPath', 'usageFields', 'usageMethod',
@@ -399,14 +399,24 @@ test('usageFields 逐行校验与上限', () => {
   ])
 })
 
-test('未填 usageUrl 时其余 usage 字段一律忽略并清空', () => {
+test('未填 usageUrl 但填了 usageFields 时按同响应用量保留', () => {
   const result = validateProvider(validDraft({
     usageUrl: '',
     usageMethod: 'PUT',
-    usageArrayPath: 'a b',
-    usageFields: [{ label: '', path: 'a b' }],
+    usageArrayPath: 'data.buckets',
+    usageFields: [{ label: '本月花费', path: 'data[].results[].amount.value' }],
     usageScale: true,
   }))
+  assert.equal(result.ok, true)
+  assert.equal(result.provider.usageUrl, '')
+  assert.equal(result.provider.usageMethod, 'GET')
+  assert.equal(result.provider.usageArrayPath, 'data.buckets')
+  assert.deepEqual(result.provider.usageFields, [{ label: '本月花费', path: 'data[].results[].amount.value' }])
+  assert.equal(result.provider.usageScale, true)
+})
+
+test('既没 usageUrl 也没 usageFields 时 usage 字段保持默认', () => {
+  const result = validateProvider(validDraft({ usageUrl: '', usageFields: [] }))
   assert.equal(result.ok, true)
   assert.equal(result.provider.usageUrl, '')
   assert.equal(result.provider.usageMethod, 'GET')
@@ -480,8 +490,8 @@ test('配置读写保留 autoUnit，旧配置缺失按 false', async (t) => {
 
 // ---------- v1.8 preset 枚举 ----------
 
-test('preset 枚举接受 deepseek/newapi/kimi/mimo/custom，未知回落 custom', () => {
-  for (const preset of ['custom', 'deepseek', 'newapi', 'kimi', 'mimo']) {
+test('preset 枚举接受 8 个值，未知回落 custom', () => {
+  for (const preset of ['custom', 'deepseek', 'newapi', 'kimi', 'mimo', 'openrouter', 'openai-cost', 'anthropic-cost']) {
     const result = validateProvider(validDraft({ preset }))
     assert.equal(result.ok, true)
     assert.equal(result.provider.preset, preset)
@@ -496,6 +506,73 @@ test('配置读写保留 kimi / mimo preset', async (t) => {
   await saveConfig({ v: 1, providers, settings: defaultSettings() }, configPath(home))
   const loaded = await loadConfig(configPath(home))
   assert.deepEqual(loaded.providers.map((provider) => provider.preset), ['kimi', 'mimo'])
+})
+
+// ---------- v1.9 balanceOptional / 只用量 / 嵌套路径 ----------
+
+test('balanceOptional 默认 false，可开启并随草稿带出', () => {
+  assert.equal(validateProvider(validDraft()).provider.balanceOptional, false)
+  const optional = validateProvider(validDraft({ balanceOptional: true }))
+  assert.equal(optional.ok, true)
+  assert.equal(optional.provider.balanceOptional, true)
+  assert.equal(validateProvider(validDraft({ balanceOptional: 'true' })).provider.balanceOptional, true)
+  assert.equal(providerToDraft(optional.provider).balanceOptional, true)
+})
+
+test('balancePath 可为空但必须至少 1 个 usageFields（只用量的服务）', () => {
+  const onlyUsage = validateProvider(validDraft({
+    balancePath: '',
+    usageUrl: '',
+    usageFields: [{ label: '本月花费', path: 'data[].results[].amount.value' }],
+  }))
+  assert.equal(onlyUsage.ok, true)
+  assert.equal(onlyUsage.provider.balancePath, '')
+  assert.equal(onlyUsage.provider.usageFields.length, 1)
+
+  const withUsageUrl = validateProvider(validDraft({
+    balancePath: '',
+    usageUrl: 'https://api.example.com/usage',
+    usageFields: [{ label: '请求', path: 'count' }],
+  }))
+  assert.equal(withUsageUrl.ok, true)
+
+  expectError(validDraft({ balancePath: '', usageUrl: '', usageFields: [] }), 'balancePath', /请填余额字段路径/)
+})
+
+test('usageFields 支持 [] 嵌套通配路径', () => {
+  const result = validateProvider(validDraft({
+    usageUrl: '',
+    usageFields: [
+      { label: '本月花费', path: 'data[].results[].amount.value' },
+      { label: '今日', path: 'data[0].usage_daily' },
+    ],
+  }))
+  assert.equal(result.ok, true)
+  assert.deepEqual(result.provider.usageFields, [
+    { label: '本月花费', path: 'data[].results[].amount.value' },
+    { label: '今日', path: 'data[0].usage_daily' },
+  ])
+  expectError(
+    validDraft({ usageUrl: '', usageFields: [{ label: '错', path: 'data[.x' }] }),
+    'usageFields',
+    /路径不合法/,
+  )
+})
+
+test('配置读写保留 balanceOptional / usage 同响应字段', async (t) => {
+  const home = await tempHome(t)
+  const provider = validateProvider(validDraft({
+    balanceOptional: true,
+    usageUrl: '',
+    usageFields: [{ label: '本月花费', path: 'data[].results[].amount.value' }],
+    usageScale: true,
+  })).provider
+  await saveConfig({ v: 1, providers: [provider], settings: defaultSettings() }, configPath(home))
+  const loaded = await loadConfig(configPath(home))
+  assert.equal(loaded.providers[0].balanceOptional, true)
+  assert.deepEqual(loaded.providers[0].usageFields, provider.usageFields)
+  assert.equal(loaded.providers[0].usageUrl, '')
+  assert.equal(loaded.providers[0].usageScale, true)
 })
 
 // ---------- 配置读写 ----------

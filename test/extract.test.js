@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { getByPath, validatePath, pickNumber } from '../lib/extract.js'
+import { getByPath, validatePath, pickNumber, sumByPath, validateSumPath } from '../lib/extract.js'
 
 test('validatePath 接受点号与下标写法', () => {
   for (const path of [
@@ -100,4 +100,76 @@ test('pickNumber 拒绝非数字值', () => {
   for (const value of ['', '   ', 'abc', '12abc', null, undefined, true, {}, [], NaN, Infinity, -Infinity]) {
     assert.equal(pickNumber(value), null, String(value))
   }
+})
+
+// ---------- v1.9 sumByPath ----------
+
+test('validateSumPath 接受 [] 通配，拒绝非法结构', () => {
+  for (const path of [
+    'data[].results[].amount.value',
+    'data[0].results[].amount',
+    'a[]',
+    'data.quota',
+    '$.data[].amount',
+    'data[][0]',
+  ]) {
+    assert.equal(validateSumPath(path), true, path)
+  }
+  for (const path of ['', 'a[', 'a[]x', '[]', 'data[]..x', '0a', 'a[1.2]', null, 42]) {
+    assert.equal(validateSumPath(path), false, String(path))
+  }
+})
+
+test('sumByPath 无 [] 时等价单值', () => {
+  const obj = { data: { quota: 12.5, text: '7', bad: 'x', nil: null } }
+  assert.equal(sumByPath(obj, 'data.quota'), 12.5)
+  assert.equal(sumByPath(obj, 'data.text'), 7)
+  assert.equal(sumByPath(obj, 'data.bad'), null)
+  assert.equal(sumByPath(obj, 'data.nil'), null)
+  assert.equal(sumByPath(obj, 'data.missing'), null)
+  assert.equal(sumByPath(obj, '$.data.quota'), 12.5)
+})
+
+test('sumByPath 支持嵌套 [] 通配求和（含数字字符串）', () => {
+  const obj = {
+    data: [
+      { results: [{ amount: { value: 1 } }, { amount: { value: '2' } }] },
+      { results: [{ amount: { value: 3.5 } }] },
+      { results: [] },
+    ],
+  }
+  assert.equal(sumByPath(obj, 'data[].results[].amount.value'), 6.5)
+  assert.equal(sumByPath(obj, 'data[0].results[].amount.value'), 3)
+  assert.equal(sumByPath(obj, 'data[1].results[0].amount.value'), 3.5)
+})
+
+test('sumByPath 跳过缺失/非数字项，全无数值返回 null', () => {
+  const obj = {
+    data: [
+      { results: [{ amount: 2 }, { amount: 'abc' }, {}] },
+      { results: [{ amount: '4' }] },
+      {},
+    ],
+  }
+  assert.equal(sumByPath(obj, 'data[].results[].amount'), 6)
+  assert.equal(sumByPath(obj, 'data[].results[].missing'), null)
+  assert.equal(sumByPath({ data: [] }, 'data[].amount'), null)
+  assert.equal(sumByPath({ data: [{ amount: null }] }, 'data[].amount'), null)
+})
+
+test('sumByPath 对 [] 通配对象取 values，另支持字符串键下标', () => {
+  const obj = { data: { a: { v: 1 }, b: { v: 2 } } }
+  assert.equal(sumByPath(obj, 'data[].v'), 3)
+  assert.equal(sumByPath({ data: { 0: { v: 5 } } }, 'data[0].v'), 5)
+})
+
+test('sumByPath 空值/非法路径/异常输入不抛异常', () => {
+  assert.equal(sumByPath({}, 'data[]'), null)
+  assert.equal(sumByPath(null, 'a'), null)
+  assert.equal(sumByPath(undefined, 'a'), null)
+  assert.equal(sumByPath('text', 'a'), null)
+  assert.equal(sumByPath([{ a: 1 }], 'a'), null)
+  assert.equal(sumByPath({ a: 1 }, 'a b'), null)
+  assert.equal(sumByPath({ a: 1 }, ''), null)
+  assert.equal(sumByPath({ a: 0 }, 'a'), 0)
 })

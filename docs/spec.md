@@ -498,3 +498,31 @@ export function presetOptions() // → [{ label, value }] 给 UI 选项（含 cu
 - MiMo 模板表单：名称 + API Key；保存固定 url/字段。
 - `draftForm`/`save` 分支支持 kimi（region 参数）/mimo；其余保持。
 - tests：向导行数/两套简表/保存分支/绑定路径/预算。
+
+## 19. v1.9：OpenRouter / OpenAI·Claude 本月花费 / 中转站订阅额度
+
+> 哥哥「都做吧」。需要给取数引擎补 4 个能力，再加 3 个预设 + newapi 订阅额度行。
+
+### 19.1 core：引擎能力
+
+1. **URL 占位符**（provider.url 与 usageUrl 都替换）：`{now}`、`{today}`、`{7d}`、`{month_start}`（本地时区 epoch 秒）；`{now_iso}`、`{today_iso}`、`{7d_iso}`、`{month_start_iso}`（RFC3339 UTC，如 `2026-11-01T00:00:00Z`）。本地时区用运行主机时区。
+2. **嵌套数组求和**：新增 `sumByPath(obj, path)`，路径支持 `[]` 通配：`data[].results[].amount.value`，对命中的数值（含数字字符串）求和；无 `[]` 时等价单值。`usageFields` 一律用 sumByPath 取值。
+3. **同响应取用量**：`usageFields` 非空且 `usageUrl` 为空 → 直接从余额那次响应解析 usage（不额外请求）。`usageArrayPath` 为空时对整份 JSON 用 sumByPath；非空时若解析为数组则逐项求和、对象则单对象取值。
+4. **只用量的服务**：允许 `balancePath` 为空（必须至少 1 个 usageFields）：只发一次 `provider.url` 请求（鉴权照常），`Result.ok=true`、`balance=null`，usage 照常。
+5. **可空余额**：Provider 新增 `balanceOptional: boolean`（默认 false）；`true` 时 `balancePath` 解析为 null 不视为失败（ok=true、balance=null），供 OpenRouter「未设限额」用。
+6. `newapi` 预设的 detailPaths 增加 `{label:'订阅额度', path:'data.subscription_quota'}`（老站没该字段时该行会缺失，展示层过滤）。
+
+### 19.2 core：三个预设
+
+- `openrouter`（label「OpenRouter」）：url `https://openrouter.ai/api/v1/key`，bearer，`balancePath='data.limit_remaining'`、`balanceOptional=true`、`usageUrl=''`、`usageArrayPath=''`、`usageFields=[{label:'今日花费',path:'data.usage_daily'},{label:'本月花费',path:'data.usage_monthly'}]`、`usageScale=true`、divisor=1、multiplier=1、symbol=`'$'`、decimals=2、autoUnit=false。
+- `openai-cost`（label「OpenAI 花费」）：url `https://api.openai.com/v1/organization/costs?start_time={month_start}&end_time={now}&bucket_width=1d&limit=31`，bearer（组织 Admin key），`balancePath=''`、`usageUrl=''`、`usageArrayPath=''`、`usageFields=[{label:'本月花费',path:'data[].results[].amount.value'}]`、`usageScale=true`、divisor=1、symbol=`'$'`、decimals=2。
+- `anthropic-cost`（label「Claude 花费」）：url `https://api.anthropic.com/v1/organizations/cost_report?starting_at={month_start_iso}&bucket_width=1d`，authType=`header`、secretHeader=`x-api-key`、headersText=`{"anthropic-version":"2023-06-01"}`，`balancePath=''`、`usageUrl=''`、`usageFields=[{label:'本月花费',path:'data[].results[].amount'}]`、`usageScale=true`、divisor=100（金额是「分」）、symbol=`'$'`、decimals=2。
+- preset 枚举扩到 `custom|deepseek|newapi|kimi|mimo|openrouter|openai-cost|anthropic-cost`；`balanceOptional` 校验/落盘。
+
+### 19.3 ui
+
+- 向导加三行：OpenRouter（「只填 API Key」）、OpenAI 花费（「需要组织 Admin key」）、Claude 花费（「需要 Admin key，金额为估算」）。
+- 三个模板表单都只填名称 + 密钥 + 一行 caption（OpenAI/Claude 注明 Admin key 与「只显示本月花费，不是余额」）；保存走对应预设固定配置。
+- 卡片：`balance=null` 时余额显示 `—`、状态正常（不显示错误）；用量 metric 照常。
+- 菜单里追加**明细信息行**：`result.details` 里非空项作为不可点的 list 行（title=标签、trailing=值）放在编辑/删除上面，用于显示 newapi「订阅额度」；空/缺省过滤。
+- 其余（菜单/确认/autoUnit/刷新/预算/4KiB）不变；tests 同步。

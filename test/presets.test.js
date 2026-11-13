@@ -3,12 +3,15 @@ import assert from 'node:assert/strict'
 import { PRESETS, presetDraft, presetOptions } from '../lib/presets.js'
 import { validateProvider } from '../lib/config.js'
 
-test('PRESETS 包含四个内置模板，文案符合 spec', () => {
+test('PRESETS 包含七个内置模板，文案符合 spec', () => {
   assert.deepEqual(PRESETS, [
     { id: 'deepseek', label: 'DeepSeek 官方' },
     { id: 'newapi', label: 'new-api / one-api 中转' },
     { id: 'kimi', label: 'Kimi / Moonshot' },
     { id: 'mimo', label: '小米 MiMo' },
+    { id: 'openrouter', label: 'OpenRouter' },
+    { id: 'openai-cost', label: 'OpenAI 花费' },
+    { id: 'anthropic-cost', label: 'Claude 花费' },
   ])
 })
 
@@ -19,10 +22,13 @@ test('presetOptions 含自定义，label/value 成对且每次新建', () => {
     { label: 'new-api / one-api 中转', value: 'newapi' },
     { label: 'Kimi / Moonshot', value: 'kimi' },
     { label: '小米 MiMo', value: 'mimo' },
+    { label: 'OpenRouter', value: 'openrouter' },
+    { label: 'OpenAI 花费', value: 'openai-cost' },
+    { label: 'Claude 花费', value: 'anthropic-cost' },
     { label: '自定义', value: 'custom' },
   ])
   options.pop()
-  assert.equal(presetOptions().length, 5)
+  assert.equal(presetOptions().length, 8)
 })
 
 test('deepseek 模板字段严格符合 spec', () => {
@@ -63,7 +69,10 @@ test('newapi 模板空 base 留空地址', () => {
   assert.equal(draft.multiplier, 1)
   assert.equal(draft.symbol, '¥')
   assert.equal(draft.decimals, 2)
-  assert.deepEqual(draft.detailPaths, [{ label: '已用额度', path: 'data.used_quota' }])
+  assert.deepEqual(draft.detailPaths, [
+    { label: '已用额度', path: 'data.used_quota' },
+    { label: '订阅额度', path: 'data.subscription_quota' },
+  ])
 })
 
 test('newapi 模板拼接 base 并去掉多余斜杠与空白', () => {
@@ -292,4 +301,97 @@ test('kimi / mimo 草稿每次返回新对象', () => {
   const first = presetDraft('mimo')
   first.detailPaths[0].label = '改了'
   assert.equal(presetDraft('mimo').detailPaths[0].label, '现金')
+})
+
+// ---------- v1.9 OpenRouter / 花费预设 ----------
+
+test('newapi 预设明细含订阅额度', () => {
+  const draft = presetDraft('newapi', { base: 'https://relay.example.com' })
+  assert.deepEqual(draft.detailPaths, [
+    { label: '已用额度', path: 'data.used_quota' },
+    { label: '订阅额度', path: 'data.subscription_quota' },
+  ])
+})
+
+test('openrouter 预设字段严格符合 spec', () => {
+  const draft = presetDraft('openrouter')
+  assert.equal(draft.preset, 'openrouter')
+  assert.equal(draft.name, 'OpenRouter')
+  assert.equal(draft.url, 'https://openrouter.ai/api/v1/key')
+  assert.equal(draft.method, 'GET')
+  assert.equal(draft.authType, 'bearer')
+  assert.equal(draft.balancePath, 'data.limit_remaining')
+  assert.equal(draft.balanceOptional, true)
+  assert.equal(draft.usageUrl, '')
+  assert.equal(draft.usageArrayPath, '')
+  assert.deepEqual(draft.usageFields, [
+    { label: '今日花费', path: 'data.usage_daily' },
+    { label: '本月花费', path: 'data.usage_monthly' },
+  ])
+  assert.equal(draft.usageScale, true)
+  assert.equal(draft.divisor, 1)
+  assert.equal(draft.multiplier, 1)
+  assert.equal(draft.symbol, '$')
+  assert.equal(draft.decimals, 2)
+  assert.equal(draft.autoUnit, false)
+})
+
+test('openrouter 草稿填密钥后可通过校验', () => {
+  const result = validateProvider({ ...presetDraft('openrouter'), secret: 'sk-or-test' })
+  assert.equal(result.ok, true)
+  assert.equal(result.provider.balanceOptional, true)
+  assert.equal(result.provider.usageFields.length, 2)
+})
+
+test('openai-cost 预设：只用量 + 本月时间占位符 + 嵌套求和路径', () => {
+  const draft = presetDraft('openai-cost')
+  assert.equal(draft.preset, 'openai-cost')
+  assert.equal(draft.name, 'OpenAI 花费')
+  assert.equal(
+    draft.url,
+    'https://api.openai.com/v1/organization/costs?start_time={month_start}&end_time={now}&bucket_width=1d&limit=31',
+  )
+  assert.equal(draft.authType, 'bearer')
+  assert.equal(draft.balancePath, '')
+  assert.equal(draft.usageUrl, '')
+  assert.equal(draft.usageArrayPath, '')
+  assert.deepEqual(draft.usageFields, [{ label: '本月花费', path: 'data[].results[].amount.value' }])
+  assert.equal(draft.usageScale, true)
+  assert.equal(draft.divisor, 1)
+  assert.equal(draft.symbol, '$')
+  assert.equal(draft.decimals, 2)
+})
+
+test('openai-cost 草稿（无余额）可通过校验', () => {
+  const result = validateProvider({ ...presetDraft('openai-cost'), secret: 'sk-admin-test' })
+  assert.equal(result.ok, true)
+  assert.equal(result.provider.balancePath, '')
+  assert.equal(result.provider.usageFields[0].path, 'data[].results[].amount.value')
+})
+
+test('anthropic-cost 预设：header 鉴权 + ISO 占位符 + 分→元 divisor 100', () => {
+  const draft = presetDraft('anthropic-cost')
+  assert.equal(draft.preset, 'anthropic-cost')
+  assert.equal(draft.name, 'Claude 花费')
+  assert.equal(
+    draft.url,
+    'https://api.anthropic.com/v1/organizations/cost_report?starting_at={month_start_iso}&bucket_width=1d',
+  )
+  assert.equal(draft.authType, 'header')
+  assert.equal(draft.secretHeader, 'x-api-key')
+  assert.deepEqual(JSON.parse(draft.headersText), { 'anthropic-version': '2023-06-01' })
+  assert.equal(draft.balancePath, '')
+  assert.deepEqual(draft.usageFields, [{ label: '本月花费', path: 'data[].results[].amount' }])
+  assert.equal(draft.usageScale, true)
+  assert.equal(draft.divisor, 100)
+  assert.equal(draft.symbol, '$')
+})
+
+test('anthropic-cost 草稿可通过校验', () => {
+  const result = validateProvider({ ...presetDraft('anthropic-cost'), secret: 'sk-ant-test' })
+  assert.equal(result.ok, true)
+  assert.equal(result.provider.authType, 'header')
+  assert.equal(result.provider.secretHeader, 'x-api-key')
+  assert.equal(result.provider.headersText, '{"anthropic-version":"2023-06-01"}')
+  assert.equal(result.provider.divisor, 100)
 })

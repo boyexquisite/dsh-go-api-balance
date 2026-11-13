@@ -286,7 +286,13 @@ function samples () {
   const newapiForm = freshState({ formOpen: true, form: draftForm(presetDraft('newapi')) })
   const kimiForm = freshState({ formOpen: true, form: draftForm(presetDraft('kimi')) })
   const mimoForm = freshState({ formOpen: true, form: draftForm(presetDraft('mimo')) })
-  return { empty, cards, formNew, formEdit, confirm, tested, worst, picking, deepseekForm, newapiForm, kimiForm, mimoForm }
+  const openrouterForm = freshState({ formOpen: true, form: draftForm(presetDraft('openrouter')) })
+  const openaiCostForm = freshState({ formOpen: true, form: draftForm(presetDraft('openai-cost')) })
+  const anthropicCostForm = freshState({ formOpen: true, form: draftForm(presetDraft('anthropic-cost')) })
+  return {
+    empty, cards, formNew, formEdit, confirm, tested, worst, picking,
+    deepseekForm, newapiForm, kimiForm, mimoForm, openrouterForm, openaiCostForm, anthropicCostForm,
+  }
 }
 
 // ---------- 文案 ----------// ---------- 文案 ----------
@@ -343,9 +349,12 @@ test('words: 中英文案 key 齐全、值非空、长度在 UI 上限内', () =
       assert.ok(label.trim() !== '', `${locale}.fields.${key} 标签为空`)
       assert.ok([...label].length <= 200, `${locale}.fields.${key} 标签过长`)
     }
-    assert.deepEqual(dictionary.presets.map((item) => item.value).sort(), ['custom', 'deepseek', 'kimi', 'mimo', 'newapi'])
-    assert.ok(dictionary.templateKimiSub.trim() !== '')
-    assert.ok(dictionary.templateMimoSub.trim() !== '')
+    assert.deepEqual(dictionary.presets.map((item) => item.value).sort(), [
+      'anthropic-cost', 'custom', 'deepseek', 'kimi', 'mimo', 'newapi', 'openai-cost', 'openrouter',
+    ])
+    for (const key of ['templateKimiSub', 'templateMimoSub', 'templateOpenrouterSub', 'templateOpenaiCostSub', 'templateAnthropicCostSub']) {
+      assert.ok(dictionary[key].trim() !== '', key)
+    }
     assert.equal(Object.keys(dictionary.authNames).length, 6)
   }
 })
@@ -388,16 +397,19 @@ test('panelView: v2 根节点、无 minApp、自定义表单两页签与必填�
   assert.ok(JSON.stringify(view).includes('{7d}'), '用量地址 placeholder 带 {7d} 说明')
 })
 
-test('panelView: 添加向导出五种服务类型（list 行内 choose-template）', () => {
+test('panelView: 添加向导出八种服务类型（list 行内 choose-template）', () => {
   const view = panelView(freshState({ pickTemplate: true }), FULL_CAPS)
   assert.deepEqual(childrenTypes(view), ['emptyState', 'text', 'list', 'actions'])
   const list = view.children.find((child) => child.type === 'list')
-  assert.equal(list.items.length, 5)
+  assert.equal(list.items.length, 8)
   assert.deepEqual(list.items.map((item) => item.action), [
     { id: 'choose-template', args: { preset: 'deepseek' } },
     { id: 'choose-template', args: { preset: 'newapi' } },
     { id: 'choose-template', args: { preset: 'kimi' } },
     { id: 'choose-template', args: { preset: 'mimo' } },
+    { id: 'choose-template', args: { preset: 'openrouter' } },
+    { id: 'choose-template', args: { preset: 'openai-cost' } },
+    { id: 'choose-template', args: { preset: 'anthropic-cost' } },
     { id: 'choose-template', args: { preset: 'custom' } },
   ])
   assert.deepEqual(list.items.map((item) => item.subtitle), [
@@ -405,6 +417,9 @@ test('panelView: 添加向导出五种服务类型（list 行内 choose-template
     words('zh').templateNewapiSub,
     words('zh').templateKimiSub,
     words('zh').templateMimoSub,
+    words('zh').templateOpenrouterSub,
+    words('zh').templateOpenaiCostSub,
+    words('zh').templateAnthropicCostSub,
     words('zh').templateCustomSub,
   ])
   assert.deepEqual(list.items.map((item) => item.title), words('zh').presets.map((item) => item.label))
@@ -797,12 +812,13 @@ test('卡片标题行：list 单行 title=服务名、action card-menu（右侧�
   assert.equal(titleInForm.trailing, undefined)
 })
 
-test('卡片菜单：menuId 时 list 行 [编辑][删除 tone bad]', () => {
+test('卡片菜单：明细信息行在上，[编辑][删除 tone bad] 在下', () => {
   const state = stateWithProvider({ menuId: 'p_abc12345' })
   const card = panelView(state, FULL_CAPS).children[0]
   const lists = nodesOfType(card, 'list')
   assert.equal(lists.length, 2, '标题行 + 菜单 list')
   assert.deepEqual(lists[1].items, [
+    { title: '充值余额', trailing: '¥1,000.00' },
     { title: words('zh').edit, action: { id: 'card-edit', args: { id: 'p_abc12345' } } },
     { title: words('zh').delete, tone: 'bad', action: { id: 'card-delete', args: { id: 'p_abc12345' } } },
   ])
@@ -2031,4 +2047,133 @@ test('actions: save mimo 固定 url/字段，名称为空用默认名', async (t
   assert.equal(saved.balancePath, 'balance_infos[0].total_available')
   assert.deepEqual(saved.detailPaths.map((row) => row.label), ['现金', '赠送', '冻结'])
   assert.equal(saved.secret, 'sk-mimo-key')
+})
+
+
+// ---------- v1.9：OpenRouter / OpenAI·Claude 花费 / 空余额 / 菜单信息行 ----------
+
+test('panelView: OpenRouter / OpenAI 花费 / Claude 花费简表只有名称+密钥+caption', () => {
+  const cases = [
+    ['openrouter', 'openrouterCaption'],
+    ['openai-cost', 'openaiCostCaption'],
+    ['anthropic-cost', 'anthropicCostCaption'],
+  ]
+  for (const [preset, captionKey] of cases) {
+    const state = freshState({ formOpen: true, form: draftForm(presetDraft(preset)) })
+    const view = panelView(state, FULL_CAPS)
+    assert.deepEqual(collectInputs(view).map((input) => input.bind), ['data.form.name', 'data.form.secret'], preset)
+    const json = JSON.stringify(view)
+    assert.ok(json.includes(words('zh')[captionKey].slice(0, 8)), `${preset} 缺少 caption`)
+    assert.ok(!json.includes('data.form.siteBase'))
+    assert.ok(!json.includes('data.form.symbol'))
+    assertResolvable(view, panelData(state, FULL_CAPS), preset)
+    assertStructure(view, panelData(state, FULL_CAPS), preset)
+  }
+  assert.ok(words('zh').openaiCostCaption.includes('Admin key'))
+  assert.ok(words('zh').openaiCostCaption.includes('本月花费'))
+  assert.ok(words('zh').anthropicCostCaption.includes('估算'))
+  assert.ok(words('zh').anthropicCostCaption.includes('不是余额'))
+})
+
+test('空余额卡片：balance=null 显示 —，状态成功且无错误，usage metric 照常', () => {
+  const state = stateWithProvider()
+  state.config.providers[0].preset = 'openrouter'
+  state.config.providers[0].usageFields = [
+    { label: '今日花费', path: 'data.usage_daily' },
+    { label: '本月花费', path: 'data.usage_monthly' },
+  ]
+  state.config.providers[0].usageScale = true
+  state.results.p_abc12345 = makeResult('p_abc12345', {
+    ok: true,
+    balance: null,
+    details: [],
+    usage: [
+      { label: '今日花费', value: 1.5 },
+      { label: '本月花费', value: 12.75 },
+    ],
+  })
+  const data = panelData(state, FULL_CAPS)
+  assert.equal(data.cards[0].balance, '—')
+  assert.ok(data.cards[0].status.startsWith('成功'), data.cards[0].status)
+  assert.equal(data.cards[0].error, '')
+  assert.deepEqual(data.cards[0].usage0, { label: '今日花费', value: '¥1.50' })
+  assert.deepEqual(data.cards[0].usage1, { label: '本月花费', value: '¥12.75' })
+  const view = panelView(state, FULL_CAPS)
+  assert.equal(nodesOfType(view, 'callout').length, 0, '空余额不是错误，不画 callout')
+  assert.equal(nodesOfType(view, 'metric').length, 2)
+})
+
+test('菜单信息行：result.details 非空项作为不可点 list 行放在编辑/删除上面', () => {
+  const state = stateWithProvider({ menuId: 'p_abc12345' })
+  state.results.p_abc12345 = makeResult('p_abc12345', {
+    details: [
+      { label: '订阅额度', value: 1000 },
+      { label: '零值', value: 0 },
+      { label: '空值', value: null },
+      { label: '空串', value: '' },
+    ],
+  })
+  const card = panelView(state, FULL_CAPS).children[0]
+  const menu = nodesOfType(card, 'list').at(-1)
+  assert.deepEqual(menu.items, [
+    { title: '订阅额度', trailing: '¥1,000.00' },
+    { title: '零值', trailing: '¥0.00' },
+    { title: words('zh').edit, action: { id: 'card-edit', args: { id: 'p_abc12345' } } },
+    { title: words('zh').delete, tone: 'bad', action: { id: 'card-delete', args: { id: 'p_abc12345' } } },
+  ])
+  assert.equal(menu.items[0].action, undefined, '信息行不可点')
+
+  // 全部为空时菜单只有编辑/删除
+  const clean = stateWithProvider({ menuId: 'p_abc12345' })
+  clean.results.p_abc12345 = makeResult('p_abc12345', {
+    details: [{ label: '空值', value: null }, { label: '空串', value: '' }],
+  })
+  const cleanMenu = nodesOfType(panelView(clean, FULL_CAPS).children[0], 'list').at(-1)
+  assert.equal(cleanMenu.items.length, 2)
+})
+
+test('actions: save 三个花费预设走 presetDraft 固定配置', async (t) => {
+  const home = await tempHome(t)
+  const { ctx } = fakeHost()
+  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, { data: { balance: 1 } }) })
+  await store.ensureReady()
+  const secrets = {
+    openrouter: 'sk-or-key',
+    'openai-cost': 'sk-openai-admin',
+    'anthropic-cost': 'sk-ant-admin',
+  }
+  for (const preset of ['openrouter', 'openai-cost', 'anthropic-cost']) {
+    await store.actions.add({}, { locale: 'zh-CN' })
+    await store.actions['choose-template']({}, { locale: 'zh-CN', value: { preset } })
+    assert.equal(store.state.form.preset, preset)
+    const effects = await store.actions.save({}, {
+      locale: 'zh-CN',
+      value: { values: { 'data.form.name': '', 'data.form.secret': secrets[preset] } },
+    })
+    assert.equal(effects.at(-1).text, '已保存', preset)
+  }
+  const saved = await loadConfig(configPath(home))
+  assert.equal(saved.providers.length, 3)
+  const byPreset = Object.fromEntries(saved.providers.map((provider) => [provider.preset, provider]))
+  const seed = (preset) => presetDraft(preset)
+
+  assert.equal(byPreset.openrouter.url, seed('openrouter').url)
+  assert.equal(byPreset.openrouter.balancePath, 'data.limit_remaining')
+  assert.equal(byPreset.openrouter.balanceOptional, true)
+  assert.equal(byPreset.openrouter.usageScale, true)
+  assert.equal(byPreset.openrouter.symbol, '$')
+  assert.deepEqual(byPreset.openrouter.usageFields.map((row) => row.label), ['今日花费', '本月花费'])
+
+  assert.ok(byPreset['openai-cost'].url.includes('/organization/costs'))
+  assert.ok(byPreset['openai-cost'].url.includes('{month_start}'))
+  assert.equal(byPreset['openai-cost'].balancePath, '')
+  assert.equal(byPreset['openai-cost'].usageFields[0].label, '本月花费')
+  assert.equal(byPreset['openai-cost'].usageScale, true)
+
+  assert.ok(byPreset['anthropic-cost'].url.includes('/organizations/cost_report'))
+  assert.equal(byPreset['anthropic-cost'].authType, 'header')
+  assert.equal(byPreset['anthropic-cost'].secretHeader, 'x-api-key')
+  assert.equal(byPreset['anthropic-cost'].headersText, '{"anthropic-version":"2023-06-01"}')
+  assert.equal(byPreset['anthropic-cost'].divisor, 100)
+  assert.equal(byPreset['anthropic-cost'].secret, secrets['anthropic-cost'])
 })
