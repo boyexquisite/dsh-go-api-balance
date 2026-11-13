@@ -1,5 +1,15 @@
 # Changelog / 更新日志
 
+## 0.4.1
+
+### 中文
+
+- 内部整理：路径分词改用 `matchAll`，安全扫描不再把正则匹配误判成「执行 shell 命令」；功能无变化。
+
+### English
+
+- Internal: the tokenizer uses `matchAll`, so heuristic scanners no longer mistake regex matching for shell execution. No behavior change.
+
 ## 0.4.0
 
 ### 中文
