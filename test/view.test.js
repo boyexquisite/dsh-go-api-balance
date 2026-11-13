@@ -731,7 +731,7 @@ test('布局顺序：空状态/卡片 → 测试结果 → 向导/表单 → 底
   assert.deepEqual(bottomActions(formEmpty).items.map((item) => item.action), ['refresh', 'add'])
 })
 
-test('卡片标题行：list 单行 title=服务名、trailing=≡、action card-menu', () => {
+test('卡片标题行：list 单行 title=服务名、action card-menu（右侧只有系统箭头）', () => {
   const view = panelView(stateWithProvider(), FULL_CAPS)
   const card = view.children[0]
   assert.equal(nodesOfType(card, 'chips').length, 0, '不再用 chips')
@@ -742,7 +742,6 @@ test('卡片标题行：list 单行 title=服务名、trailing=≡、action card
   assert.equal(titleList.items.length, 1)
   assert.deepEqual(titleList.items[0], {
     title: 'DeepSeek',
-    trailing: '≡',
     action: { id: 'card-menu', args: { id: 'p_abc12345' } },
   })
   assert.equal(collectInputs(view).length, 0, '卡片不再产生 input')
@@ -762,7 +761,7 @@ test('卡片标题行：list 单行 title=服务名、trailing=≡、action card
   const cardInForm = formView.children.find((child) => child.type === 'stack')
   const titleInForm = nodesOfType(cardInForm, 'list')[0].items[0]
   assert.equal(Object.hasOwn(titleInForm, 'action'), false)
-  assert.equal(titleInForm.trailing, '≡')
+  assert.equal(titleInForm.trailing, undefined)
 })
 
 test('卡片菜单：menuId 时 list 行 [编辑][删除 tone bad]', () => {
