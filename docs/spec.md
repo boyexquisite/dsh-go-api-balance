@@ -568,7 +568,7 @@ export function presetOptions() // → [{ label, value }] 给 UI 选项（含 cu
 
 ### 20.4 测试
 
-- 314 项 `node --test` 全绿；检查器 0 error。
+- 319 项 `node --test` 全绿；检查器 0 error。
 - 真实接口验证：DeepSeek `¥270.08`；STA1N `🍪4,190.37`、近 7 天 Token 15.6 亿 / 请求 6,945，`/api/subscription/self` 200 空订阅 → 订阅行不显示。
 
 
@@ -603,5 +603,5 @@ export function presetOptions() // → [{ label, value }] 给 UI 选项（含 cu
 
 ### 21.6 测试
 
-- 314 项 `node --test` 全绿；检查器 0 error。
-- 新增：https 限制、同源/跨域跳转、跳转次数、用量/附加不安全地址静默跳过、权限自愈、自定义附加信息落盘。
+- 319 项 `node --test` 全绿；检查器 0 error。
+- 新增安全基线测试（`test/security.test.js`）：零依赖、无安装脚本、无遥测、清单无 wants；以及 https 限制、同源/跨域跳转、跳转次数、用量/附加不安全地址静默跳过、权限自愈、自定义附加信息落盘。
