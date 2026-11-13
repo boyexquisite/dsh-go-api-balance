@@ -187,6 +187,10 @@ function assertStructure (view, data, label) {
     if (value.type === 'actions' && Array.isArray(value.items)) {
       assert.ok(value.items.length <= 4, `${label}: actions ${value.items.length}`)
     }
+    if (value.type === 'grid') {
+      assert.ok(Number.isInteger(value.columns) && value.columns >= 1 && value.columns <= 4, `${label}: grid columns`)
+      assert.ok(Array.isArray(value.children) && value.children.length <= 32, `${label}: grid children`)
+    }
     for (const item of Object.values(value)) walk(item)
   }
   walk(view)
@@ -322,7 +326,8 @@ test('panelData: 行内 select action、总余额、明细、状态条', () => {
   assert.deepEqual(data.rows[0].action, { id: 'select', args: { id: 'p_abc12345' } })
   assert.equal(data.rows[0].tone, 'good')
   assert.ok(data.rows[0].subtitle.startsWith('成功'))
-  assert.ok(data.detail.rows.length > 0)
+  assert.equal(Object.hasOwn(data.detail, 'title'), false, '详情不再带标题')
+  assert.deepEqual(data.detail.rows, [{ label: '充值余额', value: '¥1,000.00' }])
   assert.equal(data.detail.error, '')
   assert.equal(data.formOpen, false)
   assert.equal(data.form.secret, '')
@@ -423,6 +428,131 @@ test('安全：query 鉴权时接口 URL 里的密钥不进任何文本', () => 
     assert.ok(!blob.includes('sk-query-secret-999'), '包含 URL query 密钥')
     assert.ok(!blob.includes('?key='), '包含 URL query')
   }
+})
+
+// ---------- 新版式（真机：actions 竖排通栏） ----------
+
+function childrenTypes (view) {
+  return view.children.map((child) => child.type)
+}
+
+function nodesOfType (value, type, out = []) {
+  if (Array.isArray(value)) {
+    for (const item of value) nodesOfType(item, type, out)
+    return out
+  }
+  if (!value || typeof value !== 'object') return out
+  if (value.type === type) out.push(value)
+  for (const item of Object.values(value)) nodesOfType(item, type, out)
+  return out
+}
+
+function bottomActions (view) {
+  const last = view.children.at(-1)
+  assert.equal(last.type, 'actions', '最底部必须是 actions')
+  return last
+}
+
+test('布局顺序：metric → 列表/空状态 → 详情 → 编辑/删除 → 确认 → 测试 → 表单+取消 → 底部 actions', () => {
+  const empty = panelView(freshState(), FULL_CAPS)
+  assert.deepEqual(childrenTypes(empty), ['metric', 'emptyState', 'actions'])
+  assert.deepEqual(bottomActions(empty).items.map((item) => item.action), ['refresh', 'add'])
+
+  const listed = stateWithProvider()
+  assert.deepEqual(childrenTypes(panelView(listed, FULL_CAPS)), ['metric', 'list', 'actions'])
+
+  const selected = stateWithProvider({ selectedId: 'p_abc12345' })
+  assert.deepEqual(childrenTypes(panelView(selected, FULL_CAPS)), ['metric', 'list', 'stack', 'grid', 'actions'])
+
+  const confirm = stateWithProvider({ selectedId: 'p_abc12345', confirmDelete: { id: 'p_abc12345' } })
+  assert.deepEqual(childrenTypes(panelView(confirm, FULL_CAPS)), ['metric', 'list', 'stack', 'grid', 'stack', 'actions'])
+
+  const tested = stateWithProvider({ selectedId: 'p_abc12345' })
+  tested.test = { id: 'p_abc12345', title: '测试', raw: '{"a":1}' }
+  assert.deepEqual(childrenTypes(panelView(tested, FULL_CAPS)), ['metric', 'list', 'stack', 'grid', 'stack', 'actions'])
+
+  const form = stateWithProvider({ selectedId: 'p_abc12345', formOpen: true })
+  form.form = providerForm(form.config.providers[0])
+  const formView = panelView(form, FULL_CAPS)
+  assert.deepEqual(childrenTypes(formView), ['metric', 'list', 'stack', 'grid', 'form', 'actions', 'actions'])
+  const cancel = formView.children.at(-2)
+  assert.deepEqual(cancel.items.map((item) => item.action), ['form-cancel'])
+  assert.deepEqual(bottomActions(formView).items.map((item) => item.action), ['refresh', 'add'])
+
+  const formEmpty = panelView(freshState({ formOpen: true }), FULL_CAPS)
+  assert.deepEqual(childrenTypes(formEmpty), ['metric', 'emptyState', 'form', 'actions', 'actions'])
+  assert.deepEqual(bottomActions(formEmpty).items.map((item) => item.action), ['refresh', 'add'])
+})
+
+test('编辑/删除：选中时是一行两个半宽小按钮（grid 两列各一个单项 actions）', () => {
+  const selected = stateWithProvider({ selectedId: 'p_abc12345' })
+  const view = panelView(selected, FULL_CAPS)
+  const grids = nodesOfType(view, 'grid')
+  assert.equal(grids.length, 1)
+  const grid = grids[0]
+  assert.equal(grid.columns, 2)
+  assert.equal(grid.children.length, 2)
+  assert.deepEqual(grid.children.map((child) => child.type), ['actions', 'actions'])
+  for (const child of grid.children) assert.equal(child.items.length, 1, '每个半宽按钮单独一个 actions')
+  assert.deepEqual(grid.children.map((child) => child.items[0].action), ['edit', 'delete'])
+  assert.equal(grid.children[0].items[0].label, words('zh').edit)
+  assert.equal(grid.children[1].items[0].label, words('zh').delete)
+  // 不能再用一个通栏 actions 塞两个按钮
+  for (const actions of nodesOfType(view, 'actions')) {
+    const ids = actions.items.map((item) => item.action)
+    if (ids.includes('edit') || ids.includes('delete')) {
+      assert.equal(actions.items.length, 1, '编辑/删除不能共用一个 actions')
+    }
+  }
+
+  for (const state of [freshState(), stateWithProvider()]) {
+    assert.equal(nodesOfType(panelView(state, FULL_CAPS), 'grid').length, 0, '未选中时没有编辑/删除')
+  }
+  const formOpen = freshState({ formOpen: true })
+  assert.equal(nodesOfType(panelView(formOpen, FULL_CAPS), 'grid').length, 0)
+})
+
+test('详情精简：只留 detailPaths 明细，无标题、无状态/余额/币种等行', () => {
+  const state = stateWithProvider({ selectedId: 'p_abc12345' })
+  state.results.p_abc12345 = makeResult('p_abc12345', {
+    details: [
+      { label: '充值余额', value: 1000 },
+      { label: '赠送余额', value: 20 },
+    ],
+  })
+  const data = panelData(state, FULL_CAPS)
+  assert.deepEqual(data.detail.rows, [
+    { label: '充值余额', value: '¥1,000.00' },
+    { label: '赠送余额', value: '¥20.00' },
+  ])
+  const labels = data.detail.rows.map((row) => row.label)
+  for (const removed of ['状态', '余额', '币种', '更新时间', '鉴权方式', '内置模板', '服务详情']) {
+    assert.ok(!labels.includes(removed), `详情不应再有「${removed}」行`)
+  }
+  const viewJson = JSON.stringify(panelView(state, FULL_CAPS))
+  assert.ok(!viewJson.includes('服务详情'), '详情卡标题应去掉')
+  assert.equal(nodesOfType(panelView(state, FULL_CAPS), 'keyValue').length, 1)
+
+  // 没有明细、没有错误：不渲染详情卡片/标题
+  const plain = stateWithProvider({ selectedId: 'p_abc12345' })
+  plain.results.p_abc12345 = makeResult('p_abc12345', { details: [] })
+  assert.deepEqual(panelData(plain, FULL_CAPS).detail, { rows: [], error: '' })
+  assert.equal(nodesOfType(panelView(plain, FULL_CAPS), 'keyValue').length, 0)
+  assert.ok(!JSON.stringify(panelView(plain, FULL_CAPS)).includes('detail.rows'))
+  assert.deepEqual(childrenTypes(panelView(plain, FULL_CAPS)), ['metric', 'list', 'grid', 'actions'])
+
+  // 有错误：仍用 callout 显示 detail.error，不渲染空的 keyValue
+  const failed = stateWithProvider({ selectedId: 'p_abc12345' })
+  failed.results.p_abc12345 = makeResult('p_abc12345', { ok: false, balance: null, details: [], error: '密钥或令牌无效' })
+  const failedData = panelData(failed, FULL_CAPS)
+  assert.deepEqual(failedData.detail, { rows: [], error: '密钥或令牌无效' })
+  const failedView = panelView(failed, FULL_CAPS)
+  assert.equal(nodesOfType(failedView, 'keyValue').length, 0)
+  assert.equal(nodesOfType(failedView, 'callout').length, 1)
+  assert.ok(JSON.stringify(failedView).includes('data.detail.error'))
+
+  // 未选中：没有详情块
+  assert.equal(nodesOfType(panelView(stateWithProvider(), FULL_CAPS), 'keyValue').length, 0)
 })
 
 // ---------- 老 App 降级 ----------
