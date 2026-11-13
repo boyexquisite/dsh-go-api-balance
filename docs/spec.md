@@ -720,3 +720,40 @@ export function presetOptions() // → [{ label, value }] 给 UI 选项（含 cu
 - 编辑预填超长值截断时 `form.clipped=true`，视图顶部提示 `formClipWarn`。
 - 面板最后一个订阅者离开时同时清 `menuId`/`confirmDelete`；`ensureReady`/`panelFeed` 在 dispose 后不再 emit；删除 `stripEnabled` 配置残留与 format/view 未用符号。
 - 测试：338 项全绿，check 0 error。
+
+## 29. v0.7.2：第二轮复审修复
+
+> 安全/正确性两轮独立审计后，修复剩余问题；历史章节里提到的 `strip` / `rawPreview` / `redactPreview` / 状态条 均为已删除功能，仅作历史记录。
+
+### 29.1 安全
+
+- `/api/status` 货币识别改为独立小预算（`UNIT_BUDGET_MS=1500`，且至少给余额预留 2s 或总预算 3/4），可选请求不会饿死余额。
+- `upgradeProvider` 给 OpenAI/Claude 补 `extraUrl` 前校验 `new URL(url).origin === new URL(seed.extraUrl).origin`；preset 与地址不一致时只补明细，不发密钥到硬编码域名。
+- `validateProvider` 的 `allowSecretReuse` 默认改为 `false`（调用方显式放行才复用）。
+- 3xx 的跨域/跳转超限/缺 Location 分支都先 `discardBody` 再抛错；`redirected === true` 视为异常并中止；`target === null` 不再读 body。
+- `readBodyLimited` 用 `Buffer.allocUnsafe(limit)` 预分配 + 逐块 copy，并与 abort 竞速；fallback `text()` 路径文档注明不受流式限流保护。
+- `queryAll` 支持 `totalTimeoutMs`：手动刷新总预算 28s（低于宿主 30s pending）、后台 120s；每家仍受 `timeoutMs` 约束。
+- `usageRows` 超过 5000 行时放弃本次用量解析（不再静默少算）。
+- `loadResults/normalizeResults` 跳过 `__proto__`/`constructor`/`prototype` id；坏配置备份名加随机后缀。
+- `evalExpression` 整条表达式共享一份 `[]` 访问预算。
+
+### 29.2 正确性
+
+- 保存后 `persistResults()` 立即落盘删除旧结果，重启且刷新失败也不会显示旧站余额。
+- `state.v2` 改由 `view(scope, caps)` 用 `isEditableCaps()` 判定（宿主 data caps 只有 protocol/locale）；panelFeed 不再用 data caps 覆盖。
+- `providerForm` 把被截断字段的原值放在不可枚举的 `clippedOriginals`，`openEditForm` 存入 `state.editClipped`；保存时未改动的字段还原原值并提示。
+- 换站留空密钥失败分支写回 `{...base, secret:'', secretSet:false}`，保留用户刚填的名称/站点。
+- 密钥复用判定改为「draft 的 origin 不得出现 existing 没有的」，删除可选地址放行。
+- 停用服务卡片的 usage 指标槽位为 0。
+- `updateView()` 统一 `broadcastPanels()`，多 scope 面板保存后同步数据。
+- 后台/手动刷新共享 `refreshSeq/appliedSeq`，只有开始更晚的刷新结果允许落库；`dispose` 通过 `shutdownController` 中止在途手动请求。
+- preset 表单补 `enabled` 开关；toggle 值支持 `1/'1'/'on'`；onChange 合并 `event.value.values` 并接受裸字符串 select 值。
+- 自定义 `balancePath` 表单不再 required（只用量的服务可保存）。
+- `upgradeProvider` 只迁移一次（`enriched` 落盘），保留用户自定义 extraFields、不复活删除的默认明细。
+- 明细/用量/附加信息标签禁止 `=` 与换行（保证 `label=path` 表单往返）。
+- `formatDay` 支持 YYYYMMDD、纯日期按本地日历、10/13 位数字字符串、2001 年前毫秒；count 不把布尔当数字。
+- 删除未用的 `maskSecret`/`providerToDraft` 与测试里的 strip 残留设置。
+
+### 29.3 测试
+
+- 355 项全绿、checker 0 error。新增：unit 饥饿、3xx 各错误分支 cancel、redirected、queryAll 总预算、1 字节 chunk、保存后重启、v2 判定、超长旧字段还原、换站保留输入、复用范围、停用 metric、多面板广播、双刷新取号、dispose 中止、preset 启用、onChange 合并、只用量的保存、迁移 origin、enriched 落盘、标签校验、`__proto__`、共享通配预算、formatDay/format count。

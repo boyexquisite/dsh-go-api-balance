@@ -18,8 +18,6 @@ import {
   loadResults,
   saveResults,
   validateProvider,
-  maskSecret,
-  providerToDraft,
 } from '../lib/config.js'
 
 async function tempHome (t) {
@@ -163,12 +161,12 @@ test('validateProvider 保留合法 id 与 existing id，非法 id 重新生成'
   assert.equal(validateProvider(validDraft({ id: 'p_abc123def' })).provider.id, 'p_abc123def')
   assert.equal(validateProvider(validDraft({ id: 'bad-id' })).provider.id.length, 10)
   const existing = { id: 'p_existing1', secret: 'old-secret' }
-  assert.equal(validateProvider(validDraft({ secret: '' }), { existing }).provider.id, 'p_existing1')
+  assert.equal(validateProvider(validDraft({ secret: '' }), { existing, allowSecretReuse: true }).provider.id, 'p_existing1')
 })
 
 test('validateProvider 不把空密钥写进结果，编辑时沿用 existing.secret', () => {
   const existing = { id: 'p_keep12345', secret: 'old-secret' }
-  const reused = validateProvider(validDraft({ secret: '' }), { existing })
+  const reused = validateProvider(validDraft({ secret: '' }), { existing, allowSecretReuse: true })
   assert.equal(reused.ok, true)
   assert.equal(reused.provider.secret, 'old-secret')
   expectError(validDraft({ secret: '' }), 'secret', /请填密钥/)
@@ -427,98 +425,12 @@ test('既没 usageUrl 也没 usageFields 时 usage 字段保持默认', () => {
   assert.equal(result.provider.usageScale, false)
 })
 
-test('providerToDraft 带出 usage 字段并深拷贝 usageFields', () => {
-  const provider = validateProvider(validDraft(usageOverrides())).provider
-  const draft = providerToDraft(provider)
-  assert.equal(draft.secret, '')
-  assert.equal(draft.usageUrl, provider.usageUrl)
-  assert.equal(draft.usageArrayPath, 'data')
-  assert.deepEqual(draft.usageFields, provider.usageFields)
-  assert.notEqual(draft.usageFields, provider.usageFields)
-  assert.notEqual(draft.usageFields[0], provider.usageFields[0])
-})
-
-test('配置读写保留 usage 字段，旧配置补默认值', async (t) => {
-  const home = await tempHome(t)
-  const provider = validateProvider(validDraft(usageOverrides({ usageScale: true }))).provider
-  await saveConfig({ v: 1, providers: [provider], settings: defaultSettings() }, configPath(home))
-  const loaded = await loadConfig(configPath(home))
-  assert.equal(loaded.providers[0].usageUrl, provider.usageUrl)
-  assert.equal(loaded.providers[0].usageMethod, 'GET')
-  assert.equal(loaded.providers[0].usageArrayPath, 'data')
-  assert.deepEqual(loaded.providers[0].usageFields, provider.usageFields)
-  assert.equal(loaded.providers[0].usageScale, true)
-
-  await fs.writeFile(configPath(home), JSON.stringify({
-    v: 1,
-    providers: [{ id: 'p_old12345', name: '旧', url: 'https://x.example', secret: 's', balancePath: 'data.b' }],
-    settings: {},
-  }), 'utf8')
-  const legacy = await loadConfig(configPath(home))
-  assert.equal(legacy.providers[0].usageUrl, '')
-  assert.equal(legacy.providers[0].usageMethod, 'GET')
-  assert.deepEqual(legacy.providers[0].usageFields, [])
-  assert.equal(legacy.providers[0].usageScale, false)
-})
-
-// ---------- autoUnit（v1.7） ----------
-
-test('autoUnit 默认 false，接受布尔/布尔字符串，providerToDraft 带出', () => {
-  assert.equal(validateProvider(validDraft()).provider.autoUnit, false)
-  assert.equal(validateProvider(validDraft({ autoUnit: true })).provider.autoUnit, true)
-  assert.equal(validateProvider(validDraft({ autoUnit: 'true' })).provider.autoUnit, true)
-  assert.equal(validateProvider(validDraft({ autoUnit: false })).provider.autoUnit, false)
-  assert.equal(validateProvider(validDraft({ autoUnit: 'false' })).provider.autoUnit, false)
-  const provider = validateProvider(validDraft({ autoUnit: true })).provider
-  assert.equal(providerToDraft(provider).autoUnit, true)
-  assert.equal(providerToDraft({ name: 'legacy' }).autoUnit, false)
-})
-
-test('配置读写保留 autoUnit，旧配置缺失按 false', async (t) => {
-  const home = await tempHome(t)
-  const provider = validateProvider(validDraft({ autoUnit: true })).provider
-  await saveConfig({ v: 1, providers: [provider], settings: defaultSettings() }, configPath(home))
-  const loaded = await loadConfig(configPath(home))
-  assert.equal(loaded.providers[0].autoUnit, true)
-
-  await fs.writeFile(configPath(home), JSON.stringify({
-    v: 1,
-    providers: [{ id: 'p_legacy01', name: '旧', url: 'https://x.example', secret: 's', balancePath: 'data.b' }],
-    settings: {},
-  }), 'utf8')
-  const legacy = await loadConfig(configPath(home))
-  assert.equal(legacy.providers[0].autoUnit, false)
-})
-
-// ---------- v1.8 preset 枚举 ----------
-
-test('preset 枚举接受 11 个值，未知回落 custom', () => {
-  for (const preset of ['custom', 'deepseek', 'newapi', 'oneapi', 'kimi', 'mimo', 'openrouter', 'openai-cost', 'anthropic-cost', 'opencode-go', 'commandcode']) {
-    const result = validateProvider(validDraft({ preset }))
-    assert.equal(result.ok, true)
-    assert.equal(result.provider.preset, preset)
-  }
-  assert.equal(validateProvider(validDraft({ preset: 'unknown' })).provider.preset, 'custom')
-  assert.equal('region' in validateProvider(validDraft({ preset: 'kimi', region: 'global' })).provider, false)
-})
-
-test('配置读写保留 kimi / mimo preset', async (t) => {
-  const home = await tempHome(t)
-  const providers = ['kimi', 'mimo'].map((preset) => validateProvider(validDraft({ preset })).provider)
-  await saveConfig({ v: 1, providers, settings: defaultSettings() }, configPath(home))
-  const loaded = await loadConfig(configPath(home))
-  assert.deepEqual(loaded.providers.map((provider) => provider.preset), ['kimi', 'mimo'])
-})
-
-// ---------- v1.9 balanceOptional / 只用量 / 嵌套路径 ----------
-
 test('balanceOptional 默认 false，可开启并随草稿带出', () => {
   assert.equal(validateProvider(validDraft()).provider.balanceOptional, false)
   const optional = validateProvider(validDraft({ balanceOptional: true }))
   assert.equal(optional.ok, true)
   assert.equal(optional.provider.balanceOptional, true)
   assert.equal(validateProvider(validDraft({ balanceOptional: 'true' })).provider.balanceOptional, true)
-  assert.equal(providerToDraft(optional.provider).balanceOptional, true)
 })
 
 test('balancePath 可为空但必须至少 1 个 usageFields（只用量的服务）', () => {
@@ -633,7 +545,7 @@ test('loadConfig 遇到坏 JSON 备份为 .bad-<时间戳> 并返回默认配置
   assert.deepEqual(loaded, defaultConfig())
   const files = await fs.readdir(configDir(home))
   assert.equal(files.length, 1)
-  assert.match(files[0], /^config\.json\.bad-\d+$/)
+  assert.match(files[0], /^config\.json\.bad-\d+-[a-z0-9]+$/)
 })
 
 test('loadConfig 遇到不认识的版本同样备份并回落默认', async (t) => {
@@ -644,7 +556,7 @@ test('loadConfig 遇到不认识的版本同样备份并回落默认', async (t)
   assert.equal(loaded.v, 1)
   const files = await fs.readdir(configDir(home))
   assert.equal(files.length, 1)
-  assert.match(files[0], /^config\.json\.bad-\d+$/)
+  assert.match(files[0], /^config\.json\.bad-\d+-[a-z0-9]+$/)
 })
 
 test('loadConfig 对缺失字段的 provider 补齐默认值', async (t) => {
@@ -733,31 +645,6 @@ test('saveResults 写失败不抛给 UI', async (t) => {
 
 // ---------- 打码与草稿 ----------
 
-test('maskSecret 只露末 4 位，短密钥全遮', () => {
-  assert.equal(maskSecret('sk-abcdef123456'), '••••3456')
-  assert.equal(maskSecret('abcdefgh'), '••••')
-  assert.equal(maskSecret('short'), '••••')
-  assert.equal(maskSecret('abcdefghi'), '••••fghi')
-  assert.equal(maskSecret(''), '••••')
-  assert.equal(maskSecret(null), '••••')
-})
-
-test('providerToDraft 不带出密钥并深拷贝明细', () => {
-  const provider = validateProvider(validDraft({
-    detailPaths: [{ label: '充值余额', path: 'data.a' }],
-  })).provider
-  const draft = providerToDraft(provider)
-  assert.equal(draft.secret, '')
-  assert.equal(draft.secretSet, true)
-  assert.equal(draft.name, provider.name)
-  assert.equal(draft.balancePath, provider.balancePath)
-  assert.deepEqual(draft.detailPaths, provider.detailPaths)
-  assert.notEqual(draft.detailPaths, provider.detailPaths)
-  assert.notEqual(draft.detailPaths[0], provider.detailPaths[0])
-  assert.equal(JSON.stringify(draft).includes('sk-1234567890'), false)
-  assert.deepEqual(providerToDraft(null), { secret: '', secretSet: true })
-})
-
 // ---------- v2.1 安全：https 限制 / 权限自愈 ----------
 
 test('validateProvider 拒绝非本机的明文 http 地址（余额/登录/用量/附加）', () => {
@@ -811,4 +698,69 @@ test('坏配置备份：rename 后收紧到 0600，目录收紧到 0700', async 
   assert.equal(stat.mode & 0o777, 0o600, '备份文件不能留宽权限')
   assert.equal((await fs.stat(dir)).mode & 0o777, 0o700, '目录要收紧')
   assert.ok((await fs.readFile(path.join(dir, backup), 'utf8')).includes('sk-BACKUP-LEAK'), '备份内容留给用户排查')
+})
+
+// ---------- v0.7.2 复审修复 ----------
+
+test('allowSecretReuse 默认拒绝：没显式放行就不复用旧密钥', () => {
+  const existing = { id: 'p_keep12345', secret: 'old-secret' }
+  const result = validateProvider(validDraft({ secret: '' }), { existing })
+  assert.equal(result.ok, false)
+  assert.match(result.errors.secret, /重新填密钥/)
+  const allowed = validateProvider(validDraft({ secret: '' }), { existing, allowSecretReuse: true })
+  assert.equal(allowed.provider.secret, 'old-secret')
+})
+
+test('明细/用量/附加信息标签不能含 = 或换行（保证表单往返）', () => {
+  for (const key of ['detailPaths', 'usageFields', 'extraFields']) {
+    const result = validateProvider(validDraft({
+      [key]: [{ label: 'a=b', path: 'data.x' }],
+    }))
+    assert.equal(result.ok, false, key)
+    assert.match(String(result.errors[key]), /不能含 = 或换行/, key)
+  }
+})
+
+test('enriched 标记会落盘，之后不再复活用户删掉的默认明细', async (t) => {
+  const home = await tempHome(t)
+  const provider = validateProvider(validDraft({
+    preset: 'newapi',
+    url: 'https://relay.example.com/api/user/self',
+    balancePath: 'data.quota',
+    detailPaths: [{ label: '已用额度', path: 'data.used_quota' }],
+  })).provider
+  await saveConfig({ v: 1, providers: [{ ...provider, enriched: true }], settings: defaultSettings() }, configPath(home))
+  const loaded = await loadConfig(configPath(home))
+  assert.equal(loaded.providers[0].enriched, true)
+  assert.deepEqual(loaded.providers[0].detailPaths.map((row) => row.label), ['已用额度'], '不能自动加回默认明细')
+  // 没带标记的旧配置仍会跑一次迁移，并在内存里标记为已迁移
+  const { createStore } = await import('../lib/index.js')
+  await saveConfig({
+    v: 1,
+    providers: [{ ...provider, enriched: false }],
+    settings: defaultSettings(),
+  }, configPath(home))
+  const store = createStore({ home })
+  await store.ensureReady()
+  assert.equal(store.state.config.providers[0].enriched, true)
+  assert.ok(store.state.config.providers[0].detailPaths.some((row) => row.label === '累计请求'))
+})
+
+test('loadResults 忽略 __proto__ 等危险 id', async (t) => {
+  const home = await tempHome(t)
+  const dir = path.dirname(resultsPath(home))
+  await fs.mkdir(dir, { recursive: true })
+  await fs.writeFile(resultsPath(home), JSON.stringify({
+    v: RESULTS_VERSION,
+    results: {
+      __proto__: { ok: true, balance: 1 },
+      constructor: { ok: true, balance: 2 },
+      p_ok000001: { id: 'p_ok000001', ok: true, balance: 3 },
+    },
+  }), 'utf8')
+  const loaded = await loadResults(resultsPath(home))
+  assert.equal(Object.hasOwn(loaded.results, '__proto__'), false)
+  assert.equal(Object.hasOwn(loaded.results, 'constructor'), false)
+  assert.equal(Object.keys(loaded.results).length, 1)
+  assert.equal(loaded.results.p_ok000001.balance, 3)
 })

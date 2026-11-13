@@ -163,3 +163,21 @@ test('formatDay 认数字字符串 epoch（秒/毫秒）', () => {
   assert.equal(formatDay(String(at.getTime())), '2026-11-13')
   assert.equal(formatDay('2026-11-13T09:00:00+08:00'), '2026-11-13')
 })
+
+test('formatDay：YYYYMMDD / 纯日期按本地日历 / 2001 年前的毫秒', () => {
+  assert.equal(formatDay('20261113'), '2026-11-13')
+  assert.equal(formatDay('2026-11-13'), '2026-11-13')
+  // date-only 不能按 UTC 解析后再取本地日期（负时区会差一天）
+  assert.equal(formatDay('2026-01-01'), '2026-01-01')
+  // 2001 年前的毫秒时间戳不能被当成秒
+  const earlyMs = new Date(1999, 0, 15, 12, 0, 0).getTime()
+  assert.equal(formatDay(earlyMs), '1999-01-15')
+  assert.equal(formatDay('2026'), '—', '不猜 4 位年份')
+  assert.equal(formatDay('2026-02-31'), '—', '非法日期不滚动')
+})
+
+test('formatDetailValue count 不把布尔值显示成 1', () => {
+  assert.equal(formatDetailValue({}, true, 'count'), '—')
+  assert.equal(formatDetailValue({}, 12, 'count'), '12')
+  assert.equal(formatDetailValue({}, '12', 'count'), '12')
+})

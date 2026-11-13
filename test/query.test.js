@@ -58,6 +58,24 @@ function delayed (ms, response) {
   return new Promise((resolve) => setTimeout(() => resolve(response), ms))
 }
 
+// 会响应 abort 的延迟响应（模拟真实 fetch，测试超时/预算时不会挂住）。
+function abortableDelayed (ms, response) {
+  return (url, init = {}) => new Promise((resolve, reject) => {
+    const signal = init && init.signal
+    const timer = setTimeout(() => resolve(response), ms)
+    const onAbort = () => {
+      clearTimeout(timer)
+      const error = new Error('aborted')
+      error.name = 'AbortError'
+      reject(error)
+    }
+    if (signal) {
+      if (signal.aborted) onAbort()
+      else signal.addEventListener('abort', onAbort, { once: true })
+    }
+  })
+}
+
 function hangingFetch () {
   return (url, init) => new Promise((resolve, reject) => {
     init.signal.addEventListener('abort', () => {
@@ -2083,7 +2101,7 @@ test('远端字符串收口：货币符号/明细/附加文本都有长度上限
   assert.ok([...result.extra[0].value].length <= 200)
 })
 
-test('usage 数组行数有上限，避免远端大数组把 CPU 拖死', async () => {
+test('usage 数组过大：放弃这次用量解析，而不是静默少算', async () => {
   const rows = Array.from({ length: 10000 }, () => ({ value: 1 }))
   const impl = recordingFetch(() => responseOf(200, { data: { balance: 1 }, rows }))
   const runner = createRunner({ fetchImpl: impl })
@@ -2092,5 +2110,100 @@ test('usage 数组行数有上限，避免远端大数组把 CPU 拖死', async 
     usageFields: [{ label: '数量', path: 'value' }],
   }))
   assert.equal(result.ok, true)
-  assert.deepEqual(result.usage, [{ label: '数量', value: 5000 }])
+  assert.deepEqual(result.usage, [], '超过 5000 行不返回错误总和')
+})
+
+// ---------- v0.7.2 复审修复 ----------
+
+test('可选的 /api/status 挂住时不能饿死余额请求', async () => {
+  const impl = recordingFetch((url, init) => {
+    if (url.endsWith('/api/status')) return abortableDelayed(5000, responseOf(200, { data: {} }))(url, init)
+    return abortableDelayed(5, responseOf(200, { data: { balance: 42 } }))(url, init)
+  })
+  const runner = createRunner({ fetchImpl: impl })
+  const result = await runner.queryProvider(makeProvider({
+    preset: 'newapi',
+    autoUnit: true,
+    url: 'https://relay.example.com/api/user/self',
+  }), { timeoutMs: 400 })
+  assert.equal(result.ok, true, result.error)
+  assert.equal(result.balance, 42)
+})
+
+test('3xx 错误分支都会取消 body：跨域 / 跳转过多 / 缺 Location', async () => {
+  // 跨域
+  let crossCanceled = false
+  const crossBody = new ReadableStream({ pull () { }, cancel () { crossCanceled = true } })
+  const crossImpl = recordingFetch(() => ({
+    status: 302, ok: false, body: crossBody,
+    headers: new Headers({ location: 'https://evil.example.com/x' }),
+    text: async () => { throw new Error('must not read') },
+  }))
+  const cross = await createRunner({ fetchImpl: crossImpl }).queryProvider(makeProvider())
+  assert.match(cross.error, /其它域名/)
+  assert.equal(crossCanceled, true)
+
+  // 跳转过多
+  const cancels = []
+  const hopImpl = recordingFetch((url) => {
+    let canceled = false
+    const body = new ReadableStream({ pull () { }, cancel () { canceled = true; cancels.push(url) } })
+    return { status: 302, ok: false, body, headers: new Headers({ location: '/next' }), text: async () => { throw new Error('no') } }
+  })
+  const hop = await createRunner({ fetchImpl: hopImpl }).queryProvider(makeProvider({ url: 'https://api.example.com/a' }))
+  assert.match(hop.error, /跳转次数/)
+  assert.equal(cancels.length, 4, '4 个 3xx 都应取消 body')
+
+  // 缺 Location
+  let missingCanceled = false
+  const missingBody = new ReadableStream({ pull () { }, cancel () { missingCanceled = true } })
+  const missingImpl = recordingFetch(() => ({
+    status: 302, ok: false, body: missingBody, headers: new Headers(),
+    text: async () => { throw new Error('must not read') },
+  }))
+  const missing = await createRunner({ fetchImpl: missingImpl }).queryProvider(makeProvider())
+  assert.match(missing.error, /HTTP 302/)
+  assert.equal(missingCanceled, true)
+})
+
+test('宿主自动跟随跳转（redirected=true）会被中止', async () => {
+  let canceled = false
+  const body = new ReadableStream({ pull () { }, cancel () { canceled = true } })
+  const impl = recordingFetch(() => ({
+    status: 200, ok: true, redirected: true, url: 'https://evil.example.com/x', body,
+    headers: new Headers(), text: async () => { throw new Error('no') },
+  }))
+  const result = await createRunner({ fetchImpl: impl }).queryProvider(makeProvider())
+  assert.match(result.error, /跳转异常/)
+  assert.equal(canceled, true)
+})
+
+test('queryAll 有总预算：多个慢服务不会拖过总时长', async () => {
+  const delay = abortableDelayed(300, responseOf(200, { data: { balance: 1 } }))
+  const impl = recordingFetch((url, init) => delay(url, init))
+  const runner = createRunner({ fetchImpl: impl })
+  const started = Date.now()
+  const results = await runner.queryAll([
+    makeProvider({ id: 'p_a', url: 'https://a.example.com/b' }),
+    makeProvider({ id: 'p_b', url: 'https://b.example.com/b' }),
+    makeProvider({ id: 'p_c', url: 'https://c.example.com/b' }),
+  ], { timeoutMs: 5000, totalTimeoutMs: 250 })
+  const elapsed = Date.now() - started
+  assert.ok(elapsed < 1200, `总耗时 ${elapsed}ms`)
+  for (const result of results) assert.equal(result.ok, false)
+})
+
+test('1 字节 HTTP chunk 也只占一块预分配缓冲（结果正确且不超限）', async () => {
+  const payload = JSON.stringify({ data: { balance: 7 } })
+  const bytes = [...new TextEncoder().encode(payload)]
+  const body = new ReadableStream({
+    start (controller) {
+      for (const byte of bytes) controller.enqueue(new Uint8Array([byte]))
+      controller.close()
+    },
+  })
+  const impl = async () => ({ status: 200, ok: true, body, headers: new Headers(), text: async () => { throw new Error('no') } })
+  const result = await createRunner({ fetchImpl: impl }).queryProvider(makeProvider())
+  assert.equal(result.ok, true)
+  assert.equal(result.balance, 7)
 })

@@ -228,3 +228,12 @@ test('sumByPath：连续 [] 通配的访问次数有预算，超了返回 null �
   assert.equal(sumByPath({ a: node }, 'a' + '[]'.repeat(22)), null)
   assert.ok(Date.now() - started < 2000, '不应耗时过久')
 })
+
+test('表达式里的多个 [] 操作数共享同一份访问预算', () => {
+  const items = Array.from({ length: 60000 }, () => 1)
+  const obj = { a: items }
+  // 单个操作数在预算内
+  assert.equal(sumByPath(obj, 'a[]'), 60000)
+  // 两个操作数共享 10 万预算，总和超预算 → 整条表达式失败，不返回部分结果
+  assert.equal(evalExpression(obj, 'a[] + a[]'), null)
+})

@@ -392,7 +392,7 @@ test('panelView: v2 根节点、无 minApp、自定义表单两页签与必填�
     assert.ok(advanced.some((input) => input.bind === `data.form.${field}`), `${field} 应在高级页签`)
   }
   const balanceInput = collectInputs(view).find((item) => item.bind === 'data.form.balancePath')
-  assert.equal(balanceInput.required, true)
+  assert.equal(balanceInput.required, undefined, '只用量的服务可以留空余额路径')
   assert.equal(balanceInput.placeholder, words('zh').balancePathHint)
   assert.ok(JSON.stringify(view).includes('{7d}'), '用量地址 placeholder 带 {7d} 说明')
 })
@@ -433,7 +433,7 @@ test('panelView: 模板表单只显示关键字段（deepseek 2 项 / newapi aut
   deepseek.form = draftForm(presetDraft('deepseek'))
   const deepseekView = panelView(deepseek, FULL_CAPS)
   const deepseekInputs = collectInputs(deepseekView)
-  assert.deepEqual(deepseekInputs.map((input) => input.bind), ['data.form.name', 'data.form.secret'])
+  assert.deepEqual(deepseekInputs.map((input) => input.bind), ['data.form.name', 'data.form.secret', 'data.form.enabled'])
   assert.ok(JSON.stringify(deepseekView).includes('/user/balance'))
   assert.ok(JSON.stringify(deepseekView).includes('"caption"') || JSON.stringify(deepseekView).includes('自动'))
 
@@ -448,6 +448,7 @@ test('panelView: 模板表单只显示关键字段（deepseek 2 项 / newapi aut
     'data.form.siteBase',
     'data.form.secret',
     'data.form.autoUnit',
+    'data.form.enabled',
   ])
   const relayKindInput = newapiInputs.find((input) => input.bind === 'data.form.preset')
   assert.equal(relayKindInput.type, 'select')
@@ -473,7 +474,7 @@ test('panelView: 模板表单只显示关键字段（deepseek 2 项 / newapi aut
   manual.form = draftForm(presetDraft('newapi'))
   manual.form.autoUnit = false
   const manualInputs = collectInputs(panelView(manual, FULL_CAPS)).map((input) => input.bind)
-  for (const bind of ['data.form.symbol', 'data.form.divisor', 'data.form.multiplier', 'data.form.autoUnit']) {
+  for (const bind of ['data.form.symbol', 'data.form.divisor', 'data.form.multiplier', 'data.form.autoUnit', 'data.form.enabled']) {
     assert.ok(manualInputs.includes(bind), `手动单位时应有 ${bind}`)
   }
 
@@ -484,6 +485,7 @@ test('panelView: 模板表单只显示关键字段（deepseek 2 项 / newapi aut
     'data.form.name',
     'data.form.region',
     'data.form.secret',
+    'data.form.enabled',
   ])
   const regionInput = collectInputs(kimiView).find((input) => input.bind === 'data.form.region')
   assert.equal(regionInput.type, 'select')
@@ -494,7 +496,7 @@ test('panelView: 模板表单只显示关键字段（deepseek 2 项 / newapi aut
   // MiMo：名称 + API Key
   const mimo = freshState({ formOpen: true, form: draftForm(presetDraft('mimo')) })
   const mimoView = panelView(mimo, FULL_CAPS)
-  assert.deepEqual(collectInputs(mimoView).map((input) => input.bind), ['data.form.name', 'data.form.secret'])
+  assert.deepEqual(collectInputs(mimoView).map((input) => input.bind), ['data.form.name', 'data.form.secret', 'data.form.enabled'])
   assert.ok(JSON.stringify(mimoView).includes('/v1/platform/balance'))
 })
 
@@ -648,10 +650,11 @@ test('预算：表单最坏情况提交 JSON < 4096 字节，maxLength 与 FORM_
   const bytes = Buffer.byteLength(JSON.stringify(values))
   assert.ok(bytes < 4096, `最坏情况表单提交 ${bytes} 字节`)
   assert.equal(Object.keys(values).length, 28)
-  for (const field of ['name', 'url', 'balancePath']) {
+  for (const field of ['name', 'url']) {
     const input = inputs.find((item) => item.bind === `data.form.${field}`)
     assert.equal(input.required, true, `${field} 应必填`)
   }
+  assert.equal(inputs.find((item) => item.bind === 'data.form.balancePath').required, undefined, '余额路径可空（只用量服务）')
   const secret = inputs.find((item) => item.bind === 'data.form.secret')
   assert.equal(secret.required, true, '新建时密钥必填')
   assert.equal(secret.placeholder, words('zh').secretPlaceholderNew)
@@ -1065,7 +1068,7 @@ test('apply: 只注册 panel，加载时不联网、不写配置文件', async (
 test('apply: 面板 data 首帧同步 emit 缓存，不联网', async (t) => {
   const home = await tempHome(t)
   const provider = makeProvider()
-  await saveConfig({ v: 1, providers: [provider], settings: { stripEnabled: true, refreshOnOpen: false, timeoutMs: 12000 } }, configPath(home))
+  await saveConfig({ v: 1, providers: [provider], settings: { refreshOnOpen: false, timeoutMs: 12000 } }, configPath(home))
   await saveResults({ v: 1, results: { [provider.id]: makeResult(provider.id) } }, resultsPath(home))
   let fetchCalls = 0
   const { ctx, regs } = fakeHost()
@@ -1108,7 +1111,7 @@ test('apply: 面板关闭后收起「添加服务」类型列表，重开不再�
 test('apply: 缓存超过 60 秒且 refreshOnOpen 时后台刷新', async (t) => {
   const home = await tempHome(t)
   const provider = makeProvider()
-  await saveConfig({ v: 1, providers: [provider], settings: { stripEnabled: true, refreshOnOpen: true, timeoutMs: 12000 } }, configPath(home))
+  await saveConfig({ v: 1, providers: [provider], settings: { refreshOnOpen: true, timeoutMs: 12000 } }, configPath(home))
   await saveResults({ v: 1, results: { [provider.id]: makeResult(provider.id, { fetchedAt: FIXED_NOW - 120000 }) } }, resultsPath(home))
   let fetchCalls = 0
   const { ctx, regs } = fakeHost()
@@ -1130,7 +1133,7 @@ test('apply: 缓存超过 60 秒且 refreshOnOpen 时后台刷新', async (t) =>
 test('apply: 缓存还新或 refreshOnOpen=false 时不后台刷新', async (t) => {
   const home = await tempHome(t)
   const provider = makeProvider()
-  await saveConfig({ v: 1, providers: [provider], settings: { stripEnabled: true, refreshOnOpen: true, timeoutMs: 12000 } }, configPath(home))
+  await saveConfig({ v: 1, providers: [provider], settings: { refreshOnOpen: true, timeoutMs: 12000 } }, configPath(home))
   await saveResults({ v: 1, results: { [provider.id]: makeResult(provider.id, { fetchedAt: FIXED_NOW - 1000 }) } }, resultsPath(home))
   let fetchCalls = 0
   const { ctx, regs } = fakeHost()
@@ -1145,7 +1148,7 @@ test('apply: 缓存还新或 refreshOnOpen=false 时不后台刷新', async (t) 
   assert.equal(fetchCalls, 0)
   cancel()
 
-  await saveConfig({ v: 1, providers: [provider], settings: { stripEnabled: true, refreshOnOpen: false, timeoutMs: 12000 } }, configPath(home))
+  await saveConfig({ v: 1, providers: [provider], settings: { refreshOnOpen: false, timeoutMs: 12000 } }, configPath(home))
   await saveResults({ v: 1, results: { [provider.id]: makeResult(provider.id, { fetchedAt: FIXED_NOW - 120000 }) } }, resultsPath(home))
   const second = fakeHost()
   const store2 = apply(second.ctx, {
@@ -1379,7 +1382,7 @@ test('actions: save 填了用量地址但没填用量字段时给人话报错', 
 test('actions: card-delete 出确认、card-delete-cancel/confirm 分别取消/删除', async (t) => {
   const home = await tempHome(t)
   const provider = makeProvider()
-  await saveConfig({ v: 1, providers: [provider], settings: { stripEnabled: true, refreshOnOpen: false, timeoutMs: 12000 } }, configPath(home))
+  await saveConfig({ v: 1, providers: [provider], settings: { refreshOnOpen: false, timeoutMs: 12000 } }, configPath(home))
   await saveResults({ v: 1, results: { [provider.id]: makeResult(provider.id) } }, resultsPath(home))
   const { ctx } = fakeHost()
   const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, { data: { balance: 1 } }) })
@@ -1412,7 +1415,7 @@ test('actions: card-delete 出确认、card-delete-cancel/confirm 分别取消/�
 test('actions: refresh 用 pending + patch/toast，signal 取消立即返回空', async (t) => {
   const home = await tempHome(t)
   const provider = makeProvider()
-  await saveConfig({ v: 1, providers: [provider], settings: { stripEnabled: true, refreshOnOpen: false, timeoutMs: 12000 } }, configPath(home))
+  await saveConfig({ v: 1, providers: [provider], settings: { refreshOnOpen: false, timeoutMs: 12000 } }, configPath(home))
   let seenAuthorization = ''
   let fetchCalls = 0
   const { ctx } = fakeHost()
@@ -1677,7 +1680,7 @@ test('actions: 编辑旧 newapi（url 带 /v1）反推根地址，保存即修�
     url: 'https://sta1n.ai/v1/api/user/self',
     balancePath: 'data.quota',
   })
-  await saveConfig({ v: 1, providers: [broken], settings: { stripEnabled: true, refreshOnOpen: false, timeoutMs: 12000 } }, configPath(home))
+  await saveConfig({ v: 1, providers: [broken], settings: { refreshOnOpen: false, timeoutMs: 12000 } }, configPath(home))
   const { ctx } = fakeHost()
   const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, { data: { balance: 1 } }) })
   await store.ensureReady()
@@ -1748,7 +1751,7 @@ test('卡片预算：服务很多时按节点预算截断并给提示，data.car
 test('actions: 菜单动作缺 id、无确认态时都不误删', async (t) => {
   const home = await tempHome(t)
   const provider = makeProvider()
-  await saveConfig({ v: 1, providers: [provider], settings: { stripEnabled: true, refreshOnOpen: false, timeoutMs: 12000 } }, configPath(home))
+  await saveConfig({ v: 1, providers: [provider], settings: { refreshOnOpen: false, timeoutMs: 12000 } }, configPath(home))
   const { ctx } = fakeHost()
   const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, { data: { balance: 1 } }) })
   await store.ensureReady()
@@ -1950,7 +1953,7 @@ test('actions: choose-template kimi/mimo 生成对应简表', async (t) => {
   assert.equal(store.state.form.region, 'cn')
   assert.equal(store.state.form.url, 'https://api.moonshot.cn/v1/users/me/balance')
   const kimiView = store.panelView(FULL_CAPS)
-  assert.deepEqual(collectInputs(kimiView).map((input) => input.bind), ['data.form.name', 'data.form.region', 'data.form.secret'])
+  assert.deepEqual(collectInputs(kimiView).map((input) => input.bind), ['data.form.name', 'data.form.region', 'data.form.secret', 'data.form.enabled'])
   assertResolvable(kimiView, store.panelData(FULL_CAPS), 'kimi-form')
 
   effects = await store.actions['choose-template']({}, { locale: 'zh-CN', value: { preset: 'mimo' } })
@@ -1958,7 +1961,7 @@ test('actions: choose-template kimi/mimo 生成对应简表', async (t) => {
   assert.equal(store.state.form.preset, 'mimo')
   assert.equal(store.state.form.url, 'https://api.xiaomimimo.com/v1/platform/balance')
   const mimoView = store.panelView(FULL_CAPS)
-  assert.deepEqual(collectInputs(mimoView).map((input) => input.bind), ['data.form.name', 'data.form.secret'])
+  assert.deepEqual(collectInputs(mimoView).map((input) => input.bind), ['data.form.name', 'data.form.secret', 'data.form.enabled'])
   assertResolvable(mimoView, store.panelData(FULL_CAPS), 'mimo-form')
 })
 
@@ -2049,9 +2052,9 @@ test('actions: save mimo 固定 url/字段，名称为空用默认名', async (t
 
 test('panelView: OpenRouter / OpenAI 花费 / Claude 花费简表只有名称+密钥+caption', () => {
   const cases = [
-    ['openrouter', 'openrouterCaption', ['data.form.name', 'data.form.secret']],
-    ['openai-cost', 'costCaption', ['data.form.name', 'data.form.preset', 'data.form.secret']],
-    ['anthropic-cost', 'costCaption', ['data.form.name', 'data.form.preset', 'data.form.secret']],
+    ['openrouter', 'openrouterCaption', ['data.form.name', 'data.form.secret', 'data.form.enabled']],
+    ['openai-cost', 'costCaption', ['data.form.name', 'data.form.preset', 'data.form.secret', 'data.form.enabled']],
+    ['anthropic-cost', 'costCaption', ['data.form.name', 'data.form.preset', 'data.form.secret', 'data.form.enabled']],
   ]
   for (const [preset, captionKey, binds] of cases) {
     const state = freshState({ formOpen: true, form: draftForm(presetDraft(preset)) })
@@ -2844,5 +2847,351 @@ test('手动刷新与保存并发：旧的刷新结果丢弃，新配置由后�
   await waitFor(() => calls.some((url) => url.includes('new.example.com')))
   await waitFor(() => store.state.results[provider.id] && store.state.results[provider.id].balance === 222)
   assert.equal(store.state.results[provider.id].balance, 222)
+  store.dispose()
+})
+
+// ---------- v0.7.2 复审修复 ----------
+
+test('保存后旧结果会持久化删除：重启且刷新失败也不显示旧站余额', async (t) => {
+  const home = await tempHome(t)
+  const provider = makeProvider({ url: 'https://old.example.com/balance', preset: 'custom' })
+  await saveConfig({ v: 1, providers: [provider], settings: { refreshOnOpen: true, timeoutMs: 12000 } }, configPath(home))
+  await saveResults({ v: 1, results: { [provider.id]: makeResult(provider.id, { balance: 999, fetchedAt: FIXED_NOW }) } }, resultsPath(home))
+  const failing = async () => { throw new Error('offline') }
+  const store = apply(fakeHost().ctx, { home, now: () => FIXED_NOW, fetchImpl: failing })
+  await store.ensureReady()
+  await store.actions['card-edit']({}, { locale: 'zh-CN', value: { id: provider.id } })
+  const effects = await store.actions.save({}, {
+    locale: 'zh-CN',
+    value: {
+      values: {
+        'data.form.name': provider.name,
+        'data.form.url': 'https://new.example.com/balance',
+        'data.form.balancePath': 'data.balance',
+        'data.form.secret': 'sk-new',
+      },
+    },
+  })
+  assert.equal(effects.at(-1).text, '已保存')
+  store.dispose()
+  const again = apply(fakeHost().ctx, { home, now: () => FIXED_NOW, fetchImpl: failing })
+  await again.ensureReady()
+  assert.equal(panelData(again.state, FULL_CAPS).cards[0].balance, '—', '不能复活旧站余额')
+  again.dispose()
+})
+
+test('v2/v1 判定来自 view caps（data caps 只有 protocol/locale）', async (t) => {
+  const home = await tempHome(t)
+  const { ctx, regs } = fakeHost()
+  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, { data: { balance: 1 } }) })
+  await store.ensureReady()
+  regs.panel.view({}, FULL_CAPS)
+  assert.equal(store.state.v2, true)
+  // 真实宿主的 data caps 只有 protocol/locale，不能把 v2 改回去
+  const emits = []
+  const cancel = regs.panel.data({}, (data) => emits.push(data), { protocol: 1, locale: 'zh-CN' })
+  assert.equal(store.state.v2, true)
+  assert.equal(Object.hasOwn(emits.at(-1), 'rows'), false)
+  cancel()
+  // 老 App（无 form/tabs）走 v1，仍要有 rows
+  regs.panel.view({}, { protocol: 1, locale: 'zh-CN', components: ['stack', 'list'] })
+  assert.equal(store.state.v2, false)
+  assert.ok(Array.isArray(panelData(store.state, {}).rows))
+  store.dispose()
+})
+
+test('编辑超长旧字段：没改动的字段保存时还原原值，不写回截断值', async (t) => {
+  const home = await tempHome(t)
+  const longUrl = `https://api.example.com/${'u'.repeat(400)}`
+  const headersText = JSON.stringify({ 'x-custom': 'h'.repeat(200) })
+  const provider = makeProvider({
+    preset: 'custom',
+    url: longUrl,
+    headersText,
+    username: 'u'.repeat(100),
+    usageUrl: `https://api.example.com/usage?q=${'q'.repeat(260)}`,
+    usageFields: [{ label: '用量', path: 'data.v' }],
+  })
+  await saveConfig({ v: 1, providers: [provider], settings: { refreshOnOpen: false, timeoutMs: 12000 } }, configPath(home))
+  const { ctx } = fakeHost()
+  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, { data: { balance: 1 } }) })
+  await store.ensureReady()
+  await store.actions['card-edit']({}, { locale: 'zh-CN', value: { id: provider.id } })
+  assert.equal(store.state.form.clipped, true)
+  const effects = await store.actions.save({}, {
+    locale: 'zh-CN',
+    value: { values: { 'data.form.name': '改名', 'data.form.secret': '' } },
+  })
+  assert.equal(effects.at(-1).text, '已保存')
+  const saved = (await loadConfig(configPath(home))).providers[0]
+  assert.equal(saved.url, longUrl, 'URL 不能被静默截断')
+  assert.equal(saved.headersText, headersText, 'headersText 保持原 JSON')
+  assert.equal(saved.username, provider.username)
+  assert.equal(saved.name, '改名')
+  store.dispose()
+})
+
+test('换站留空密钥：保留用户刚填的站点/名称，填密钥后可继续保存', async (t) => {
+  const home = await tempHome(t)
+  const provider = makeProvider({
+    preset: 'newapi',
+    url: 'https://old.example.com/api/user/self',
+    balancePath: 'data.quota',
+  })
+  await saveConfig({ v: 1, providers: [provider], settings: { refreshOnOpen: false, timeoutMs: 12000 } }, configPath(home))
+  const { ctx } = fakeHost()
+  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, { data: { balance: 1 } }) })
+  await store.ensureReady()
+  await store.actions['card-edit']({}, { locale: 'zh-CN', value: { id: provider.id } })
+  let effects = await store.actions.save({}, {
+    locale: 'zh-CN',
+    value: { values: { 'data.form.name': '新站', 'data.form.siteBase': 'https://new.example.com', 'data.form.secret': '' } },
+  })
+  assert.equal(effects.at(-1).text, '换了站点或平台，请重新填密钥')
+  assert.equal(store.state.form.siteBase, 'https://new.example.com', '不能回滚用户刚填的站点')
+  assert.equal(store.state.form.name, '新站')
+  assert.equal(store.state.form.secretSet, false)
+
+  effects = await store.actions.save({}, {
+    locale: 'zh-CN',
+    value: { values: { 'data.form.siteBase': 'https://new.example.com', 'data.form.secret': 'token-new' } },
+  })
+  assert.equal(effects.at(-1).text, '已保存')
+  const saved = (await loadConfig(configPath(home))).providers[0]
+  assert.equal(saved.url, 'https://new.example.com/api/user/self')
+  assert.equal(saved.secret, 'token-new')
+  store.dispose()
+})
+
+test('密钥复用范围：删除可选地址放行，新增 origin 要求重填', async (t) => {
+  const home = await tempHome(t)
+  const provider = makeProvider({
+    preset: 'custom',
+    url: 'https://a.example.com/balance',
+    extraUrl: 'https://other.example.com/extra',
+    extraFields: [{ label: '套餐', path: 'data.plan' }],
+  })
+  await saveConfig({ v: 1, providers: [provider], settings: { refreshOnOpen: false, timeoutMs: 12000 } }, configPath(home))
+  const { ctx } = fakeHost()
+  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, { data: { balance: 1 } }) })
+  await store.ensureReady()
+
+  // 删掉跨 origin 的附加地址：允许复用密钥
+  await store.actions['card-edit']({}, { locale: 'zh-CN', value: { id: provider.id } })
+  let effects = await store.actions.save({}, {
+    locale: 'zh-CN',
+    value: { values: { 'data.form.extraUrl': '', 'data.form.extraFieldsText': '', 'data.form.secret': '' } },
+  })
+  assert.equal(effects.at(-1).text, '已保存')
+  let saved = (await loadConfig(configPath(home))).providers[0]
+  assert.equal(saved.extraUrl, '')
+
+  // 把附加地址改成新的 origin：要求重填密钥
+  await store.actions['card-edit']({}, { locale: 'zh-CN', value: { id: provider.id } })
+  effects = await store.actions.save({}, {
+    locale: 'zh-CN',
+    value: {
+      values: {
+        'data.form.extraUrl': 'https://third.example.com/extra',
+        'data.form.extraFieldsText': '套餐=data.plan',
+        'data.form.secret': '',
+      },
+    },
+  })
+  assert.equal(effects.at(-1).text, '换了站点或平台，请重新填密钥')
+  saved = (await loadConfig(configPath(home))).providers[0]
+  assert.equal(saved.extraUrl, '')
+  store.dispose()
+})
+
+test('停用服务不生成用量指标节点', () => {
+  const state = stateWithProvider()
+  state.config.providers[0].enabled = false
+  state.config.providers[0].usageFields = [{ label: 'a', path: 'a' }, { label: 'b', path: 'b' }]
+  state.results.p_abc12345 = makeResult('p_abc12345', { usage: [{ label: 'a', value: 1 }, { label: 'b', value: 2 }] })
+  assert.equal(nodesOfType(panelView(state, FULL_CAPS).children[0], 'metric').length, 0)
+})
+
+test('多面板（不同 scope）保存后都会收到新的 data', async (t) => {
+  const home = await tempHome(t)
+  const { ctx, regs } = fakeHost()
+  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, { data: { balance: 1 } }) })
+  await store.ensureReady()
+  const first = []
+  const second = []
+  const cancel1 = regs.panel.data({ sessionId: 's1' }, (data) => first.push(data), FULL_CAPS)
+  const cancel2 = regs.panel.data({ sessionId: 's2' }, (data) => second.push(data), FULL_CAPS)
+  await store.actions.add({}, { locale: 'zh-CN' })
+  await store.actions['choose-template']({}, { locale: 'zh-CN', value: { preset: 'custom' } })
+  await store.actions.save({}, {
+    locale: 'zh-CN',
+    value: {
+      values: {
+        'data.form.name': '停用',
+        'data.form.url': 'https://off.example.com/balance',
+        'data.form.balancePath': 'data.balance',
+        'data.form.secret': 'sk-off',
+        'data.form.enabled': false,
+      },
+    },
+  })
+  assert.equal(second.at(-1).cards.length, 1, '另一个面板也要看到新卡片')
+  cancel1()
+  cancel2()
+  store.dispose()
+})
+
+test('后台/手动刷新取号：后发起的刷新结果不会被更早的慢刷新覆盖', async (t) => {
+  const home = await tempHome(t)
+  const provider = makeProvider({ url: 'https://slow.example.com/balance', preset: 'custom' })
+  await saveConfig({ v: 1, providers: [provider], settings: { refreshOnOpen: true, timeoutMs: 12000 } }, configPath(home))
+  await saveResults({ v: 1, results: { [provider.id]: makeResult(provider.id, { fetchedAt: FIXED_NOW - 120000 }) } }, resultsPath(home))
+  let calls = 0
+  let releaseSlow
+  const slow = new Promise((resolve) => { releaseSlow = resolve })
+  const impl = async () => {
+    calls += 1
+    if (calls === 1) return slow
+    return response(200, { data: { balance: 222 } })
+  }
+  const { ctx, regs } = fakeHost()
+  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: impl })
+  await store.ensureReady()
+  const cancel = regs.panel.data({}, () => {}, FULL_CAPS)
+  await waitFor(() => calls >= 1)
+  const handler = store.actions.refresh({}, { locale: 'zh-CN' })
+  const manual = handler.result(new AbortController().signal)
+  await waitFor(() => calls >= 2)
+  assert.equal((await manual).at(1).text, '已更新 1 家')
+  releaseSlow(response(200, { data: { balance: 111 } }))
+  await new Promise((resolve) => setTimeout(resolve, 50))
+  assert.equal(store.state.results[provider.id].balance, 222)
+  cancel()
+  store.dispose()
+})
+
+test('dispose 会中止在途的手动刷新请求', async (t) => {
+  const home = await tempHome(t)
+  const provider = makeProvider()
+  await saveConfig({ v: 1, providers: [provider], settings: { refreshOnOpen: false, timeoutMs: 12000 } }, configPath(home))
+  let captured = null
+  const impl = (url, init = {}) => new Promise((resolve, reject) => {
+    captured = init.signal || null
+    const onAbort = () => {
+      const error = new Error('aborted')
+      error.name = 'AbortError'
+      reject(error)
+    }
+    if (captured) {
+      if (captured.aborted) onAbort()
+      else captured.addEventListener('abort', onAbort, { once: true })
+    }
+  })
+  const { ctx } = fakeHost()
+  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: impl })
+  await store.ensureReady()
+  const handler = store.actions.refresh({}, { locale: 'zh-CN' })
+  const pending = handler.result(new AbortController().signal)
+  await waitFor(() => captured !== null)
+  store.dispose()
+  await waitFor(() => captured.aborted === true)
+  assert.equal(captured.aborted, true)
+  await pending
+})
+
+test('preset 服务可以重新启用；toggle 的 1/on 也当 true', async (t) => {
+  const home = await tempHome(t)
+  const provider = makeProvider({ preset: 'deepseek', url: 'https://api.deepseek.com/user/balance', enabled: false })
+  await saveConfig({ v: 1, providers: [provider], settings: { refreshOnOpen: false, timeoutMs: 12000 } }, configPath(home))
+  const { ctx } = fakeHost()
+  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, { data: { balance: 1 } }) })
+  await store.ensureReady()
+  await store.actions['card-edit']({}, { locale: 'zh-CN', value: { id: provider.id } })
+  const formJson = JSON.stringify(panelView(store.state, FULL_CAPS))
+  assert.ok(formJson.includes('data.form.enabled'), '模板表单要有启用开关')
+  const effects = await store.actions.save({}, {
+    locale: 'zh-CN',
+    value: { values: { 'data.form.enabled': '1', 'data.form.secret': '' } },
+  })
+  assert.equal(effects.at(-1).text, '已保存')
+  assert.equal((await loadConfig(configPath(home))).providers[0].enabled, true)
+  store.dispose()
+})
+
+test('平台下拉 onChange 会合并 App 带回的未提交字段（也接受裸字符串）', async (t) => {
+  const home = await tempHome(t)
+  const { ctx } = fakeHost()
+  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, { data: { balance: 1 } }) })
+  await store.ensureReady()
+  await store.actions.add({}, { locale: 'zh-CN' })
+  await store.actions['choose-template']({}, { locale: 'zh-CN', value: { preset: 'newapi' } })
+  await store.actions['preset-change']({}, {
+    locale: 'zh-CN',
+    value: { value: 'oneapi', values: { 'data.form.siteBase': 'https://typed.example.com' } },
+  })
+  assert.equal(store.state.form.preset, 'oneapi')
+  assert.equal(store.state.form.siteBase, 'https://typed.example.com', '未提交的输入不能被 patch 冲掉')
+  await store.actions['preset-change']({}, { locale: 'zh-CN', value: 'newapi' })
+  assert.equal(store.state.form.preset, 'newapi', '裸字符串事件值也要认')
+  store.dispose()
+})
+
+test('只用量的自定义服务：表单不再强制余额路径，可以保存', async (t) => {
+  const home = await tempHome(t)
+  const { ctx } = fakeHost()
+  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, { data: { balance: 1 } }) })
+  await store.ensureReady()
+  await store.actions.add({}, { locale: 'zh-CN' })
+  await store.actions['choose-template']({}, { locale: 'zh-CN', value: { preset: 'custom' } })
+  const effects = await store.actions.save({}, {
+    locale: 'zh-CN',
+    value: {
+      values: {
+        'data.form.name': '只用量',
+        'data.form.url': 'https://usage.example.com/b',
+        'data.form.balancePath': '',
+        'data.form.secret': 'sk-u',
+        'data.form.usageFieldsText': '请求=data.requests',
+      },
+    },
+  })
+  assert.equal(effects.at(-1).text, '已保存')
+  const saved = (await loadConfig(configPath(home))).providers[0]
+  assert.equal(saved.balancePath, '')
+  assert.equal(saved.usageFields.length, 1)
+  store.dispose()
+})
+
+test('迁移只在 preset 与地址同厂商时补 OpenAI/Claude 用量请求，避免跨域发密钥', async (t) => {
+  const home = await tempHome(t)
+  const dir = path.dirname(configPath(home))
+  await fs.mkdir(dir, { recursive: true })
+  const base = {
+    id: 'p_cost0001',
+    name: '中转挂的花费',
+    preset: 'openai-cost',
+    method: 'GET',
+    authType: 'bearer',
+    secret: 'sk-relay-REAL',
+    balancePath: '',
+    extraUrl: '',
+    extraFields: [],
+    enabled: true,
+  }
+  await fs.writeFile(configPath(home), JSON.stringify({
+    v: 1,
+    providers: [
+      { ...base, url: 'https://relay.example.com/balance' },
+      { ...base, id: 'p_cost0002', url: 'https://api.openai.com/v1/organization/costs' },
+    ],
+    settings: { refreshOnOpen: false, timeoutMs: 12000 },
+  }), 'utf8')
+  const { ctx } = fakeHost()
+  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, {}) })
+  await store.ensureReady()
+  const [relay, official] = store.state.config.providers
+  assert.equal(relay.extraUrl, '', 'preset 与地址不一致时不能把密钥发到 api.openai.com')
+  assert.equal(relay.extraFields.length, 0)
+  assert.ok(official.extraUrl.includes('/organization/usage/completions'), '同厂商才补 token 用量请求')
   store.dispose()
 })
