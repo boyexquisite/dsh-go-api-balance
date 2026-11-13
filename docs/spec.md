@@ -306,3 +306,36 @@ export function presetOptions() // → [{ label, value }] 给 UI 选项（含 cu
 - 表单 maxLength 相应收紧（保证最坏提交 <4096B）：`url 400`、`loginUrl 300`、`secret 600`、`username 80`、`tokenPath 80`、`tokenHeader 48`、`tokenPrefix 24`、`secretHeader 48`、`secretParam 48`、`balancePath 100`、`currencyPath 80`、`headersText 200`、`bodyText 200`、`detailText 300`、`usageUrl 300`、`usageArrayPath 40`、`usageFieldsText 120`；单测按最坏情况填满断言 <4096。
 - `lib/index.js` 的 `save`：`usageFieldsText` 解析（每行 `标签=路径`，≤4）写入 `usageFields`；其余字段按现有逻辑透传。
 - 详情区块不变（仍只放 `result.details`）；错误/预算/v1 降级不变。
+
+## 12. v1.2：模板向导（表单「不知道怎么填」的解法）
+
+> 哥哥 2026-11-13 反馈：字段太多、JSON 路径不知道咋填。改成**先选服务类型，再只填关键项**；
+> 高级字段只在「自定义」里出现，且收进「高级」页签。core（config/query/presets）不改。
+
+### 12.1 添加入口
+
+- 「添加服务」不再直接开大表单，先进入「选择服务类型」：`list` 三行（`action:{id:'choose-template',args:{preset}}`）：
+  - `DeepSeek 官方` —— 副标题「只填 API Key，余额自动读」
+  - `new-api / one-api 中转` —— 副标题「填站点地址和访问令牌，余额/用量自动读」
+  - `自定义` —— 副标题「自己的接口，需要填地址和字段路径」
+- 选完才出对应表单；表单上方给一行 caption 写明自动配置了什么（如「自动：/user/balance · 只显示余额」）。
+- 面板状态新增 `pickTemplate: boolean`；`add` → `pickTemplate=true`；`choose-template` → `form = presetDraft(preset)`、`pickTemplate=false`、`formOpen=true`；`form-cancel` 清两者。
+
+### 12.2 模板表单（只显示关键字段）
+
+- **DeepSeek**：名称（默认「DeepSeek」）、密钥（`secret`，编辑时留空=不改，placeholder「已保存，留空不改」）。其它字段全部隐藏，保存时由模板固定（url/路径/明细）。
+- **new-api / one-api**：名称（默认「new-api 中转」）、站点地址（表单字段 `siteBase`，如 `https://sta1n.ai`）、访问令牌（`secret`）、货币符号（`symbol`，默认 ¥）、乘数（`multiplier`，默认 1；说明「额度 ÷500000 × 乘数」）。隐藏 url/usage 路径。
+  - 保存时 `siteBase` 必填 http(s)；`url = siteBase + '/api/user/self'`；`usageUrl = siteBase + '/api/data/self?start_timestamp={7d}&end_timestamp={now}&default_time=day'`；`usageArrayPath='data'`；`usageFields` 用模板默认（`近7天 Token=token_used`、`近7天 请求=count`）；`usageScale=false`。
+  - 编辑已有 newapi 服务：从 `provider.url` 反推 siteBase（去掉 `/api/user/self`；去不掉就原样显示，用户可改）。
+- **自定义**：两页签 `常用` / `高级`：
+  - 常用：名称、地址、方法、鉴权方式、密钥（及该鉴权需要的 username/header 名/param 名/登录地址等）、余额字段路径（必填，hint「点保存后可回来改；或按原始 JSON 对照」）、货币符号。
+  - 高级：币种路径、明细字段、除数、乘数、小数位、额外请求头、请求体、用量地址、用量数组路径、用量字段、用量换算开关。
+  - 保持现有表单上限与 4 KiB 断言；`usageFieldsText` 解析逻辑不变。
+
+### 12.3 交互细节
+
+- `siteBase` 是表单专用字段（不落盘），`panelData.form` 里带 `siteBase`；`providerForm` 反推；`emptyForm` 置空。
+- `save`：按 `base.preset` 分支（deepseek/newapi/custom）组装 draft 后走现有 `validateProvider`；模板分支里若名称为空用默认名。
+- 保存成功后自动触发一次后台刷新（`startBackgroundRefresh()` 风格），不用用户再点「刷新」。
+- 移除表单里的「内置模板」select 与 `preset` onChange 动作（避免 patch 不刷新可见值的坑）；模板只能在添加时选。
+- 视图预算、绑定路径、v1 降级、删除确认、测试动作等其余行为不变；tests 同步更新。

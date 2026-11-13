@@ -6,10 +6,12 @@ import path from 'node:path'
 
 import { configPath, resultsPath, saveConfig, saveResults, loadConfig } from '../lib/config.js'
 import { getByPath } from '../lib/extract.js'
+import { presetDraft } from '../lib/presets.js'
 import {
   FORM_LIMITS,
   createState,
   detailTextOf,
+  draftForm,
   emptyForm,
   hasComponent,
   panelData,
@@ -232,7 +234,11 @@ function samples () {
   }
   worst.form = providerForm(worst.config.providers[0])
   worst.test = { id: worst.config.providers[0].id, title: 'x'.repeat(20), raw: 'x'.repeat(8000) }
-  return { empty, rows, errorState, selected, formNew, formEdit, confirm, tested, worst }
+
+  const picking = freshState({ pickTemplate: true })
+  const deepseekForm = freshState({ formOpen: true, form: draftForm(presetDraft('deepseek')) })
+  const newapiForm = freshState({ formOpen: true, form: draftForm(presetDraft('newapi')) })
+  return { empty, rows, errorState, selected, formNew, formEdit, confirm, tested, worst, picking, deepseekForm, newapiForm }
 }
 
 // ---------- 文案 ----------
@@ -279,9 +285,12 @@ test('words: 中英文案 key 齐全、值非空、长度在 UI 上限内', () =
     assert.ok([...dictionary.refreshed(12)].length <= 40, 'toast')
     assert.ok([...dictionary.saved].length <= 40, 'toast')
     assert.ok([...dictionary.upgradeHint].length <= 2000, '升级提示')
-    for (const section of [dictionary.tabBasicLabel, dictionary.tabAuthLabel, dictionary.tabFieldsLabel, dictionary.tabUsageLabel]) {
+    for (const section of [dictionary.tabCommonLabel, dictionary.tabAdvancedLabel]) {
       assert.ok([...section].length <= 24, '页签标签')
     }
+    assert.ok([...dictionary.chooseTemplate].length <= 24)
+    assert.ok([...dictionary.deepseekCaption].length <= 200)
+    assert.ok([...dictionary.newapiCaption].length <= 200)
     for (const [key, label] of Object.entries(dictionary.fields)) {
       assert.ok(label.trim() !== '', `${locale}.fields.${key} 标签为空`)
       assert.ok([...label].length <= 200, `${locale}.fields.${key} 标签过长`)
@@ -293,7 +302,7 @@ test('words: 中英文案 key 齐全、值非空、长度在 UI 上限内', () =
 
 // ---------- 视图结构 ----------
 
-test('panelView: v2 根节点、无 minApp、三组页签与必填字段', () => {
+test('panelView: v2 根节点、无 minApp、自定义表单两页签与必填字段', () => {
   const view = panelView(freshState({ formOpen: true }), FULL_CAPS)
   assert.equal(view.v, 2)
   assert.equal(view.accent, 'app')
@@ -304,26 +313,75 @@ test('panelView: v2 根节点、无 minApp、三组页签与必填字段', () =>
   assert.ok(json.includes('"tabs"'))
   assert.ok(json.includes('"textField"'))
   assert.ok(json.includes('data.form.secret'))
+  assert.ok(!json.includes('data.form.preset'), '表单里不再有 preset select')
+  assert.ok(!json.includes('onChange'), '不再有 preset onChange')
   const binds = collectInputs(view).map((item) => item.bind)
-  for (const field of Object.keys(FORM_LIMITS)) {
+  for (const field of ['name', 'url', 'method', 'authType', 'secret', 'balancePath', 'symbol', 'currencyPath', 'detailText', 'divisor', 'multiplier', 'decimals', 'headersText', 'bodyText', 'usageUrl', 'usageArrayPath', 'usageFieldsText', 'usageScale', 'enabled']) {
     assert.ok(binds.includes(`data.form.${field}`), `缺少表单字段 ${field}`)
   }
   assert.equal(new Set(binds).size, binds.length, '表单字段不能重复绑定')
-  assert.equal(collectInputs(view).length, 27)
+  assert.equal(collectInputs(view).length, 26)
   const tabs = nodesOfType(view, 'tabs')[0]
-  assert.equal(tabs.items.length, 4, '表单应有 4 个页签')
-  assert.deepEqual(tabs.items.map((item) => item.label), [
-    words('zh').tabBasicLabel,
-    words('zh').tabAuthLabel,
-    words('zh').tabFieldsLabel,
-    words('zh').tabUsageLabel,
-  ])
-  for (const field of ['usageUrl', 'usageArrayPath', 'usageFieldsText', 'usageScale']) {
-    const input = collectInputs(view).find((item) => item.bind === `data.form.${field}`)
-    assert.ok(input, `缺少用量表单字段 ${field}`)
-    assert.ok(input.label.trim() !== '')
+  assert.equal(tabs.items.length, 2, '自定义表单是 常用/高级 两个页签')
+  assert.deepEqual(tabs.items.map((item) => item.label), [words('zh').tabCommonLabel, words('zh').tabAdvancedLabel])
+  const common = collectInputs(tabs.items[0])
+  const advanced = collectInputs(tabs.items[1])
+  for (const field of ['name', 'url', 'authType', 'secret', 'balancePath', 'symbol']) {
+    assert.ok(common.some((input) => input.bind === `data.form.${field}`), `${field} 应在常用页签`)
   }
+  for (const field of ['currencyPath', 'detailText', 'divisor', 'headersText', 'bodyText', 'usageUrl', 'usageScale']) {
+    assert.ok(advanced.some((input) => input.bind === `data.form.${field}`), `${field} 应在高级页签`)
+  }
+  const balanceInput = collectInputs(view).find((item) => item.bind === 'data.form.balancePath')
+  assert.equal(balanceInput.required, true)
+  assert.equal(balanceInput.placeholder, words('zh').balancePathHint)
   assert.ok(JSON.stringify(view).includes('{7d}'), '用量地址 placeholder 带 {7d} 说明')
+})
+
+test('panelView: 添加向导先出三种服务类型（list 行内 choose-template）', () => {
+  const view = panelView(freshState({ pickTemplate: true }), FULL_CAPS)
+  assert.deepEqual(childrenTypes(view), ['metric', 'emptyState', 'text', 'list', 'actions'])
+  const list = view.children.find((child) => child.type === 'list')
+  assert.equal(list.items.length, 3)
+  assert.deepEqual(list.items.map((item) => item.action), [
+    { id: 'choose-template', args: { preset: 'deepseek' } },
+    { id: 'choose-template', args: { preset: 'newapi' } },
+    { id: 'choose-template', args: { preset: 'custom' } },
+  ])
+  assert.deepEqual(list.items.map((item) => item.title), words('zh').presets.map((item) => item.label))
+  assert.ok(!JSON.stringify(view).includes('"form"'), '选类型阶段不出表单')
+
+  const withProvider = stateWithProvider({ pickTemplate: true })
+  assert.deepEqual(childrenTypes(panelView(withProvider, FULL_CAPS)), ['metric', 'list', 'text', 'list', 'actions'])
+})
+
+test('panelView: 模板表单只显示关键字段（deepseek 2 项 / newapi 5 项）', () => {
+  const deepseek = freshState({ formOpen: true })
+  deepseek.form = draftForm(presetDraft('deepseek'))
+  const deepseekView = panelView(deepseek, FULL_CAPS)
+  const deepseekInputs = collectInputs(deepseekView)
+  assert.deepEqual(deepseekInputs.map((input) => input.bind), ['data.form.name', 'data.form.secret'])
+  assert.ok(JSON.stringify(deepseekView).includes('/user/balance'))
+  assert.ok(JSON.stringify(deepseekView).includes('"caption"') || JSON.stringify(deepseekView).includes('自动'))
+
+  const newapi = freshState({ formOpen: true })
+  newapi.form = draftForm(presetDraft('newapi'))
+  const newapiView = panelView(newapi, FULL_CAPS)
+  const newapiInputs = collectInputs(newapiView)
+  assert.deepEqual(newapiInputs.map((input) => input.bind), [
+    'data.form.name',
+    'data.form.siteBase',
+    'data.form.secret',
+    'data.form.symbol',
+    'data.form.multiplier',
+  ])
+  const siteInput = newapiInputs.find((input) => input.bind === 'data.form.siteBase')
+  assert.equal(siteInput.required, true)
+  assert.equal(siteInput.maxLength, FORM_LIMITS.siteBase)
+  assert.equal(siteInput.placeholder, words('zh').siteBasePlaceholder)
+  assert.ok(!JSON.stringify(newapiView).includes('data.form.url'), 'newapi 不显示裸 url')
+  assert.ok(JSON.stringify(newapiView).includes('/api/data/self'), 'caption 说明自动读用量')
+  assert.equal(nodesOfType(newapiView, 'tabs').length, 0)
 })
 
 test('panelView: 所有状态下的绑定路径都能在 panelData 找到', () => {
@@ -451,7 +509,7 @@ test('预算：表单最坏情况提交 JSON < 4096 字节，maxLength 与 FORM_
   }
   const bytes = Buffer.byteLength(JSON.stringify(values))
   assert.ok(bytes < 4096, `最坏情况表单提交 ${bytes} 字节`)
-  assert.equal(Object.keys(values).length, 27)
+  assert.equal(Object.keys(values).length, 26)
   for (const field of ['name', 'url', 'balancePath']) {
     const input = inputs.find((item) => item.bind === `data.form.${field}`)
     assert.equal(input.required, true, `${field} 应必填`)
@@ -480,6 +538,7 @@ test('FORM_LIMITS: 按 spec §11.4 收紧，含用量字段', () => {
     usageUrl: 300,
     usageArrayPath: 40,
     usageFieldsText: 120,
+    siteBase: 300,
     name: 24,
     symbol: 8,
   })
@@ -573,7 +632,7 @@ test('布局顺序：metric → 列表/空状态 → 详情 → 编辑/删除 �
   const form = stateWithProvider({ selectedId: 'p_abc12345', formOpen: true })
   form.form = providerForm(form.config.providers[0])
   const formView = panelView(form, FULL_CAPS)
-  assert.deepEqual(childrenTypes(formView), ['metric', 'list', 'stack', 'grid', 'form', 'actions', 'actions'])
+  assert.deepEqual(childrenTypes(formView), ['metric', 'list', 'stack', 'grid', 'text', 'form', 'actions', 'actions'])
   const cancel = formView.children.at(-2)
   assert.deepEqual(cancel.items.map((item) => item.action), ['form-cancel'])
   assert.deepEqual(bottomActions(formView).items.map((item) => item.action), ['refresh', 'add'])
@@ -815,7 +874,7 @@ test('apply: 注册 panel/strip，加载时不联网、不写配置文件', asyn
   assert.equal(regs.strip.id, 'balance-strip')
   assert.equal(typeof regs.panel.view, 'function')
   assert.equal(typeof regs.panel.data, 'function')
-  for (const action of ['refresh', 'select', 'add', 'preset', 'edit', 'form-cancel', 'save', 'delete', 'test', 'close-test']) {
+  for (const action of ['refresh', 'select', 'add', 'choose-template', 'edit', 'form-cancel', 'save', 'delete', 'test', 'close-test']) {
     assert.equal(typeof regs.panel.actions[action], 'function', `缺少动作 ${action}`)
   }
   await store.ensureReady()
@@ -929,9 +988,17 @@ test('actions: select/add/edit/form-cancel 返回 patch+refresh 并更新视图�
   assert.ok(regs.refreshIds.length > 0)
 
   effects = await store.actions.add({}, { locale: 'zh-CN' })
+  assert.equal(store.state.pickTemplate, true, '添加先选服务类型')
+  assert.equal(store.state.formOpen, false)
+  assert.equal(effectTypes(effects).includes('refresh'), true)
+
+  effects = await store.actions['choose-template']({}, { locale: 'zh-CN', value: { preset: 'deepseek' } })
+  assert.equal(store.state.pickTemplate, false)
   assert.equal(store.state.formOpen, true)
+  assert.equal(store.state.form.preset, 'deepseek')
   assert.equal(store.state.form.secret, '')
   assert.equal(store.state.form.secretSet, false)
+  assert.equal(effectTypes(effects).includes('refresh'), true)
 
   effects = await store.actions.edit({}, { locale: 'zh-CN' })
   assert.equal(store.state.formOpen, true)
@@ -941,34 +1008,49 @@ test('actions: select/add/edit/form-cancel 返回 patch+refresh 并更新视图�
 
   effects = await store.actions['form-cancel']({}, { locale: 'zh-CN' })
   assert.equal(store.state.formOpen, false)
+  assert.equal(store.state.pickTemplate, false)
   assert.equal(effectTypes(effects).includes('refresh'), true)
 })
 
-test('actions: preset 的 onChange 只返回 patch，且保留已填名称/地址', async (t) => {
+test('actions: choose-template 按类型生成模板表单，form-cancel 清状态', async (t) => {
   const home = await tempHome(t)
   const { ctx } = fakeHost()
-  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, { balance: 1 }) })
+  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, { data: { balance: 1 } }) })
   await store.ensureReady()
-  store.state.formOpen = true
-  store.state.form = emptyForm()
-  let effect = await store.actions.preset({}, { locale: 'zh-CN', value: { bind: 'data.form.preset', value: 'deepseek' } })
-  assert.equal(effect.type, 'patch')
-  assert.equal(store.state.form.balancePath, 'balance_infos[0].total_balance')
-  assert.equal(store.state.form.name, 'DeepSeek')
-  assert.equal(store.state.form.secret, '')
 
-  store.state.form.name = '我的服务'
-  store.state.form.url = 'https://custom.example.com/balance'
-  effect = await store.actions.preset({}, { locale: 'zh-CN', value: { bind: 'data.form.preset', value: 'newapi' } })
-  assert.equal(store.state.form.name, '我的服务')
-  assert.equal(store.state.form.url, 'https://custom.example.com/balance')
+  let effects = await store.actions.add({}, { locale: 'zh-CN' })
+  assert.equal(store.state.pickTemplate, true)
+  assert.equal(store.state.formOpen, false)
+
+  effects = await store.actions['choose-template']({}, { locale: 'zh-CN', value: { preset: 'newapi' } })
+  assert.equal(effectTypes(effects).includes('refresh'), true)
+  assert.equal(store.state.pickTemplate, false)
+  assert.equal(store.state.formOpen, true)
+  assert.equal(store.state.form.preset, 'newapi')
+  assert.equal(store.state.form.siteBase, '')
+  assert.equal(store.state.form.balancePath, 'data.quota')
   assert.equal(store.state.form.divisor, 500000)
   assert.equal(store.state.form.usageArrayPath, 'data')
-  assert.ok(store.state.form.usageUrl.endsWith('/api/data/self?start_timestamp={7d}&end_timestamp={now}&default_time=day'), store.state.form.usageUrl)
   assert.equal(store.state.form.usageFieldsText, '近7天 Token=token_used\n近7天 请求=count')
-  assert.equal(store.state.form.usageScale, false)
-  assert.equal(store.state.form.usageMethod, 'GET')
-  assert.equal(effect.type, 'patch')
+  assert.equal(store.state.form.symbol, '¥')
+  assert.equal(store.state.form.multiplier, 1)
+
+  effects = await store.actions['choose-template']({}, { locale: 'zh-CN', value: { preset: 'deepseek' } })
+  assert.equal(store.state.form.preset, 'deepseek')
+  assert.equal(store.state.form.name, 'DeepSeek')
+  assert.equal(store.state.form.url, 'https://api.deepseek.com/user/balance')
+  assert.equal(store.state.form.balancePath, 'balance_infos[0].total_balance')
+  assert.equal(store.state.form.detailText, '充值余额=balance_infos[0].topped_up_balance\n赠送余额=balance_infos[0].granted_balance')
+
+  effects = await store.actions['choose-template']({}, { locale: 'zh-CN', value: { preset: 'custom' } })
+  assert.equal(store.state.form.preset, 'custom')
+  assert.equal(store.state.form.name, '')
+  assert.equal(store.state.form.usageUrl, '')
+
+  effects = await store.actions['form-cancel']({}, { locale: 'zh-CN' })
+  assert.equal(store.state.pickTemplate, false)
+  assert.equal(store.state.formOpen, false)
+  assert.equal(effectTypes(effects).includes('refresh'), true)
 })
 
 test('actions: save 校验失败给人话 toast，不写文件', async (t) => {
@@ -977,6 +1059,7 @@ test('actions: save 校验失败给人话 toast，不写文件', async (t) => {
   const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, { balance: 1 }) })
   await store.ensureReady()
   await store.actions.add({}, { locale: 'zh-CN' })
+  await store.actions['choose-template']({}, { locale: 'zh-CN', value: { preset: 'custom' } })
   const effect = await store.actions.save({}, {
     locale: 'zh-CN',
     value: {
@@ -1000,6 +1083,7 @@ test('actions: save 成功落盘、清空表单、toast 已保存', async (t) =>
   const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, { balance: 1 }) })
   await store.ensureReady()
   await store.actions.add({}, { locale: 'zh-CN' })
+  await store.actions['choose-template']({}, { locale: 'zh-CN', value: { preset: 'custom' } })
   const effects = await store.actions.save({}, {
     locale: 'zh-CN',
     value: {
@@ -1070,6 +1154,7 @@ test('actions: save 填了用量地址但没填用量字段时给人话报错', 
   const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, { data: { balance: 1 } }) })
   await store.ensureReady()
   await store.actions.add({}, { locale: 'zh-CN' })
+  await store.actions['choose-template']({}, { locale: 'zh-CN', value: { preset: 'custom' } })
   const effect = await store.actions.save({}, {
     locale: 'zh-CN',
     value: {
@@ -1215,4 +1300,161 @@ test('panelView: v2 但缺 emptyState/codeBlock 时用 callout/text 兜底', () 
   assert.ok(testedJson.includes('data.test.raw'))
   assertResolvable(testedView, panelData(tested, caps), 'fallback-text')
   assertStructure(empty, panelData(freshState(), caps), 'fallback-empty')
+})
+
+
+// ---------- 模板向导：保存分支与自动刷新 ----------
+
+test('表单草稿：providerForm 从 newapi url 反推 siteBase', () => {
+  const provider = makeProvider({
+    preset: 'newapi',
+    url: 'https://relay.example.com/api/user/self',
+    authType: 'bearer',
+  })
+  assert.equal(providerForm(provider).siteBase, 'https://relay.example.com')
+  const custom = makeProvider({ url: 'https://relay.example.com/custom/balance' })
+  assert.equal(providerForm(custom).siteBase, 'https://relay.example.com/custom/balance')
+  const deepseek = providerForm(makeProvider({ preset: 'deepseek', url: 'https://api.deepseek.com/user/balance' }))
+  assert.equal(deepseek.preset, 'deepseek')
+  assert.equal(deepseek.secret, '')
+  assert.equal(deepseek.secretSet, true)
+})
+
+test('actions: save deepseek 只收名称+密钥，自动组装固定字段并在保存后刷新', async (t) => {
+  const home = await tempHome(t)
+  let fetchCalls = 0
+  const { ctx } = fakeHost()
+  const store = apply(ctx, {
+    home,
+    now: () => FIXED_NOW,
+    fetchImpl: async () => {
+      fetchCalls += 1
+      return response(200, { balance_infos: [{ total_balance: 12.5, currency: 'CNY' }] })
+    },
+  })
+  await store.ensureReady()
+  await store.actions.add({}, { locale: 'zh-CN' })
+  await store.actions['choose-template']({}, { locale: 'zh-CN', value: { preset: 'deepseek' } })
+  const effects = await store.actions.save({}, {
+    locale: 'zh-CN',
+    value: {
+      values: {
+        'data.form.name': '',
+        'data.form.secret': 'sk-deepseek-key',
+      },
+    },
+  })
+  assert.equal(effects.at(-1).text, '已保存')
+  const saved = (await loadConfig(configPath(home))).providers[0]
+  assert.equal(saved.name, 'DeepSeek', '名称为空用默认名')
+  assert.equal(saved.preset, 'deepseek')
+  assert.equal(saved.url, 'https://api.deepseek.com/user/balance')
+  assert.equal(saved.balancePath, 'balance_infos[0].total_balance')
+  assert.equal(saved.currencyPath, 'balance_infos[0].currency')
+  assert.deepEqual(saved.detailPaths, [
+    { label: '充值余额', path: 'balance_infos[0].topped_up_balance' },
+    { label: '赠送余额', path: 'balance_infos[0].granted_balance' },
+  ])
+  assert.deepEqual(saved.usageFields, [])
+  assert.equal(saved.secret, 'sk-deepseek-key')
+  // 保存成功后自动后台刷新，无需再点刷新
+  await waitFor(() => fetchCalls > 0)
+  await waitFor(() => store.state.results[saved.id] && store.state.results[saved.id].ok === true)
+})
+
+test('actions: save newapi 由 siteBase 组装 url/usage，名称为空用默认名', async (t) => {
+  const home = await tempHome(t)
+  const { ctx } = fakeHost()
+  const store = apply(ctx, {
+    home,
+    now: () => FIXED_NOW,
+    fetchImpl: async () => response(200, { data: { balance: 500000 } }),
+  })
+  await store.ensureReady()
+  await store.actions.add({}, { locale: 'zh-CN' })
+  await store.actions['choose-template']({}, { locale: 'zh-CN', value: { preset: 'newapi' } })
+  const effects = await store.actions.save({}, {
+    locale: 'zh-CN',
+    value: {
+      values: {
+        'data.form.name': '',
+        'data.form.siteBase': 'https://sta1n.ai/',
+        'data.form.secret': 'sk-relay-token',
+        'data.form.symbol': '$',
+        'data.form.multiplier': 2,
+      },
+    },
+  })
+  assert.equal(effects.at(-1).text, '已保存')
+  const saved = (await loadConfig(configPath(home))).providers[0]
+  assert.equal(saved.name, 'new-api 中转')
+  assert.equal(saved.preset, 'newapi')
+  assert.equal(saved.url, 'https://sta1n.ai/api/user/self')
+  assert.equal(
+    saved.usageUrl,
+    'https://sta1n.ai/api/data/self?start_timestamp={7d}&end_timestamp={now}&default_time=day',
+  )
+  assert.equal(saved.usageArrayPath, 'data')
+  assert.equal(saved.usageScale, false)
+  assert.equal(saved.usageMethod, 'GET')
+  assert.deepEqual(saved.usageFields, [
+    { label: '近7天 Token', path: 'token_used' },
+    { label: '近7天 请求', path: 'count' },
+  ])
+  assert.equal(saved.divisor, 500000)
+  assert.equal(saved.multiplier, 2)
+  assert.equal(saved.symbol, '$')
+  assert.equal(Object.hasOwn(saved, 'siteBase'), false, 'siteBase 是表单专用字段，不落盘')
+})
+
+test('actions: newapi 站点地址为空或非 http(s) 时给人话 toast，不写文件', async (t) => {
+  const home = await tempHome(t)
+  const { ctx } = fakeHost()
+  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, { data: { balance: 1 } }) })
+  await store.ensureReady()
+  const baseValues = {
+    'data.form.name': '中转',
+    'data.form.secret': 'sk-relay-token',
+    'data.form.symbol': '¥',
+    'data.form.multiplier': 1,
+  }
+  await store.actions.add({}, { locale: 'zh-CN' })
+  await store.actions['choose-template']({}, { locale: 'zh-CN', value: { preset: 'newapi' } })
+  let effect = await store.actions.save({}, {
+    locale: 'zh-CN',
+    value: { values: { ...baseValues, 'data.form.siteBase': '' } },
+  })
+  assert.equal(effect.type, 'toast')
+  assert.equal(effect.text, '请填站点地址')
+
+  effect = await store.actions.save({}, {
+    locale: 'zh-CN',
+    value: { values: { ...baseValues, 'data.form.siteBase': 'relay.example.com' } },
+  })
+  assert.equal(effect.type, 'toast')
+  assert.equal(effect.text, '站点地址要以 http:// 或 https:// 开头')
+  const configExists = await fs.access(configPath(home)).then(() => true, () => false)
+  assert.equal(configExists, false)
+})
+
+test('actions: save custom 名称必填仍走原校验', async (t) => {
+  const home = await tempHome(t)
+  const { ctx } = fakeHost()
+  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, { data: { balance: 1 } }) })
+  await store.ensureReady()
+  await store.actions.add({}, { locale: 'zh-CN' })
+  await store.actions['choose-template']({}, { locale: 'zh-CN', value: { preset: 'custom' } })
+  const effect = await store.actions.save({}, {
+    locale: 'zh-CN',
+    value: {
+      values: {
+        'data.form.name': '',
+        'data.form.url': 'https://api.example.com/balance',
+        'data.form.secret': 'sk-x',
+        'data.form.balancePath': 'data.balance',
+      },
+    },
+  })
+  assert.equal(effect.type, 'toast')
+  assert.equal(effect.text, '请填名称')
 })

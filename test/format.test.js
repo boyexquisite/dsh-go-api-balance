@@ -144,9 +144,10 @@ test('formatUsage: 原始计数用万/亿与千分位（中文）', () => {
   assert.equal(formatUsage(provider, { label: '请求', value: 999 }), '999')
   assert.equal(formatUsage(provider, { label: '请求', value: 0 }), '0')
   assert.equal(formatUsage(provider, { label: '请求', value: 9999 }), '9,999')
-  assert.equal(formatUsage(provider, { label: 'Token', value: 10000 }), '1.0万')
+  assert.equal(formatUsage(provider, { label: 'Token', value: 10000 }), '1万')
   assert.equal(formatUsage(provider, { label: 'Token', value: 12345 }), '1.2万')
-  assert.equal(formatUsage(provider, { label: 'Token', value: 100000000 }), '1.0亿')
+  assert.equal(formatUsage(provider, { label: 'Token', value: 1234567 }), '123.5万')
+  assert.equal(formatUsage(provider, { label: 'Token', value: 100000000 }), '1亿')
   assert.equal(formatUsage(provider, { label: 'Token', value: 1554060713 }), '15.5亿')
 })
 
@@ -154,6 +155,8 @@ test('formatUsage: 英文用 B/M/K', () => {
   const provider = { usageScale: false }
   assert.equal(formatUsage(provider, { value: 6837 }, 'en-US'), '6.8K')
   assert.equal(formatUsage(provider, { value: 999 }, 'en-US'), '999')
+  assert.equal(formatUsage(provider, { value: 1000 }, 'en-US'), '1K')
+  assert.equal(formatUsage(provider, { value: 2000000 }, 'en-US'), '2M')
   assert.equal(formatUsage(provider, { value: 1234567 }, 'en-US'), '1.2M')
   assert.equal(formatUsage(provider, { value: 1554060713 }, 'en-US'), '1.6B')
 })
@@ -162,7 +165,7 @@ test('formatUsage: usageScale 时按余额单位格式化', () => {
   const scaled = { usageScale: true, symbol: '¥', decimals: 2, divisor: 500000, multiplier: 1 }
   assert.equal(formatUsage(scaled, { label: '额度', value: 1000000 }, 'zh-CN'), '¥2.00')
   const raw = { usageScale: false, symbol: '¥', decimals: 2, divisor: 500000, multiplier: 1 }
-  assert.equal(formatUsage(raw, { label: '额度', value: 1000000 }, 'zh-CN'), '100.0万')
+  assert.equal(formatUsage(raw, { label: '额度', value: 1000000 }, 'zh-CN'), '100万')
   assert.equal(formatUsage({ usageScale: true, symbol: '$', decimals: 1 }, 5, 'en-US'), '$5.0')
 })
 

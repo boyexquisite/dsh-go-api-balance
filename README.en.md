@@ -21,10 +21,11 @@ The host must be able to reach the balance endpoints you configure.
 
 ## Quick start
 
-1. Open **API balance** → **Add service**.
-2. Pick a template — **DeepSeek** (just the API key), **new-api / one-api relay** (site URL,
-   access token, quota divisor), or **custom** (fill the URL, auth, and the JSON path of the balance).
-3. Save, then press **Refresh**; the panel also refreshes when opened.
+1. Open **API balance** → **Add service** → pick a type (three rows only).
+2. Fill just the key fields — **DeepSeek** (API key), **new-api / one-api relay** (site URL, access
+   token, currency symbol and multiplier), or **custom** (URL/auth/balance path in "Common",
+   the rest under "Advanced").
+3. It refreshes right after saving; opening the panel refreshes too.
 
 Field paths look like `data.quota` or `balance_infos[0].total_balance`; the **Test** button
 returns the raw JSON so you can check the path.
