@@ -1865,3 +1865,80 @@ test('detailPaths 也支持 [] 通配求和', async () => {
   assert.equal(result.ok, true)
   assert.deepEqual(result.details, [{ label: '手续费', value: 3 }])
 })
+
+// ---------- v2.1 安全：https / 跳转防护 ----------
+
+function redirectResponse (status, location) {
+  return {
+    status,
+    ok: false,
+    headers: { get: (name) => (String(name).toLowerCase() === 'location' ? location : null) },
+    text: async () => '',
+  }
+}
+
+test('明文 http 地址拒绝请求（本机回环除外）', async () => {
+  const calls = []
+  const impl = async (url) => {
+    calls.push(url)
+    return responseOf(200, { data: { balance: 1 } })
+  }
+  const runner = createRunner({ fetchImpl: impl })
+  const blocked = await runner.queryProvider(makeProvider({ url: 'http://api.example.com/balance' }))
+  assert.equal(blocked.ok, false)
+  assert.match(blocked.error, /https/)
+  assert.deepEqual(calls, [])
+
+  const loopback = await runner.queryProvider(makeProvider({ url: 'http://127.0.0.1:8080/balance' }))
+  assert.equal(loopback.ok, true)
+  assert.deepEqual(calls, ['http://127.0.0.1:8080/balance'])
+})
+
+test('同源跳转自动跟随，鉴权头保留', async () => {
+  const impl = recordingFetch((url) => {
+    if (url.endsWith('/v2/balance')) return responseOf(200, { data: { balance: 7 } })
+    return redirectResponse(302, '/v2/balance')
+  })
+  const runner = createRunner({ fetchImpl: impl })
+  const result = await runner.queryProvider(makeProvider({ url: 'https://api.example.com/balance' }))
+  assert.equal(result.ok, true)
+  assert.equal(result.balance, 7)
+  assert.equal(impl.calls.length, 2)
+  assert.equal(impl.calls[1].url, 'https://api.example.com/v2/balance')
+  assert.equal(impl.calls[1].init.headers.Authorization, 'Bearer sk-test-123456')
+  assert.equal(impl.calls[0].init.redirect, 'manual')
+})
+
+test('跨域跳转停止，不把密钥带到第三方', async () => {
+  const impl = recordingFetch(() => redirectResponse(302, 'https://evil.example.com/steal'))
+  const runner = createRunner({ fetchImpl: impl })
+  const result = await runner.queryProvider(makeProvider({ url: 'https://api.example.com/balance' }))
+  assert.equal(result.ok, false)
+  assert.match(result.error, /其它域名/)
+  assert.equal(impl.calls.length, 1)
+  assert.ok(!impl.calls.some((call) => String(call.url).includes('evil.example.com')))
+})
+
+test('跳转次数超限时报错', async () => {
+  const impl = recordingFetch((url) => redirectResponse(302, `${new URL(url).pathname}/x`))
+  const runner = createRunner({ fetchImpl: impl })
+  const result = await runner.queryProvider(makeProvider({ url: 'https://api.example.com/a' }))
+  assert.equal(result.ok, false)
+  assert.match(result.error, /跳转次数/)
+})
+
+test('不安全地址的用量/附加请求会被静默跳过', async () => {
+  const impl = recordingFetch(() => responseOf(200, { data: { balance: 1 } }))
+  const runner = createRunner({ fetchImpl: impl })
+  const result = await runner.queryProvider(makeProvider({
+    url: 'https://api.example.com/balance',
+    usageUrl: 'http://api.example.com/usage',
+    usageFields: [{ label: '用量', path: 'data.n' }],
+    extraUrl: 'http://api.example.com/extra',
+    extraFields: [{ label: '订阅', path: 'data.sub' }],
+  }))
+  assert.equal(result.ok, true)
+  assert.deepEqual(result.usage, [])
+  assert.deepEqual(result.extra, [])
+  assert.equal(impl.calls.length, 1, '不应向 http 地址发请求')
+})

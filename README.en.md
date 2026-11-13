@@ -18,6 +18,8 @@ JSON field paths.
   that trades for a token.
 - **Credentials stay on the host** in `$DSH_HOME/cache/dsh-go-api-balance/config.json` (0600);
   never sent to the model or logged; the panel never echoes the key.
+- **HTTPS only** for credential-bearing URLs (loopback excepted); cross-origin redirects are
+  blocked so a key can never be bounced to another host. See [SECURITY.md](SECURITY.md).
 - Zero runtime dependencies; no network until the panel is opened or a button is pressed.
 
 ## Install
@@ -64,6 +66,14 @@ Not supported: consumer subscriptions (Claude Pro/Max, ChatGPT Plus, Gemini Adva
 Perplexity Pro) — no official API and automation is against their terms; platforms with no
 balance/spend API (Gemini API, Cohere, Groq, Replicate, HuggingFace, xAI); prepaid Claude/OpenAI
 balances (console only).
+
+## Security & privacy
+
+No conversation/clipboard/file access, no model calls, no telemetry, no background polling,
+zero runtime dependencies and no install scripts. Requests only go to the endpoints you configure;
+`/api/status` (currency detection) is unauthenticated. Config/cache files are 0600 / dir 0700 and
+are tightened on load. What it can and cannot protect against is documented in
+[SECURITY.md](SECURITY.md).
 
 ## Development
 

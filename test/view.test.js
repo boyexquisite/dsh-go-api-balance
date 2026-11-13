@@ -380,7 +380,7 @@ test('panelView: v2 根节点、无 minApp、自定义表单两页签与必填�
     assert.ok(binds.includes(`data.form.${field}`), `缺少表单字段 ${field}`)
   }
   assert.equal(new Set(binds).size, binds.length, '表单字段不能重复绑定')
-  assert.equal(collectInputs(view).length, 26)
+  assert.equal(collectInputs(view).length, 28)
   const tabs = nodesOfType(view, 'tabs')[0]
   assert.equal(tabs.items.length, 2, '自定义表单是 常用/高级 两个页签')
   assert.deepEqual(tabs.items.map((item) => item.label), [words('zh').tabCommonLabel, words('zh').tabAdvancedLabel])
@@ -389,7 +389,7 @@ test('panelView: v2 根节点、无 minApp、自定义表单两页签与必填�
   for (const field of ['name', 'url', 'authType', 'secret', 'balancePath', 'symbol']) {
     assert.ok(common.some((input) => input.bind === `data.form.${field}`), `${field} 应在常用页签`)
   }
-  for (const field of ['currencyPath', 'detailText', 'divisor', 'headersText', 'bodyText', 'usageUrl', 'usageScale']) {
+  for (const field of ['currencyPath', 'detailText', 'divisor', 'headersText', 'bodyText', 'usageUrl', 'usageScale', 'extraUrl', 'extraFieldsText']) {
     assert.ok(advanced.some((input) => input.bind === `data.form.${field}`), `${field} 应在高级页签`)
   }
   const balanceInput = collectInputs(view).find((item) => item.bind === 'data.form.balancePath')
@@ -647,7 +647,7 @@ test('预算：表单最坏情况提交 JSON < 4096 字节，maxLength 与 FORM_
   }
   const bytes = Buffer.byteLength(JSON.stringify(values))
   assert.ok(bytes < 4096, `最坏情况表单提交 ${bytes} 字节`)
-  assert.equal(Object.keys(values).length, 26)
+  assert.equal(Object.keys(values).length, 28)
   for (const field of ['name', 'url', 'balancePath']) {
     const input = inputs.find((item) => item.bind === `data.form.${field}`)
     assert.equal(input.required, true, `${field} 应必填`)
@@ -659,8 +659,8 @@ test('预算：表单最坏情况提交 JSON < 4096 字节，maxLength 与 FORM_
 
 test('FORM_LIMITS: 按 spec §11.4 收紧，含用量字段', () => {
   assert.deepEqual(FORM_LIMITS, {
-    url: 400,
-    loginUrl: 300,
+    url: 380,
+    loginUrl: 260,
     secret: 600,
     username: 80,
     tokenPath: 80,
@@ -670,12 +670,14 @@ test('FORM_LIMITS: 按 spec §11.4 收紧，含用量字段', () => {
     secretParam: 48,
     balancePath: 100,
     currencyPath: 80,
-    headersText: 200,
-    bodyText: 200,
-    detailText: 300,
-    usageUrl: 300,
+    headersText: 180,
+    bodyText: 180,
+    detailText: 280,
+    usageUrl: 280,
     usageArrayPath: 40,
     usageFieldsText: 120,
+    extraUrl: 240,
+    extraFieldsText: 100,
     siteBase: 300,
     name: 24,
     symbol: 8,
@@ -2287,4 +2289,52 @@ test('actions: choose-template oneapi 保存后是 one-api 配置', async (t) =>
     { label: '近7天 Token', path: 'prompt_tokens + completion_tokens' },
     { label: '近7天 请求', path: 'request_count' },
   ])
+})
+
+// ---------- v2.1 安全 / 通用：自定义服务也能配附加信息与表达式 ----------
+
+test('actions: 自定义服务可保存附加信息字段与表达式，明文 http 被拒', async (t) => {
+  const home = await tempHome(t)
+  const { ctx } = fakeHost()
+  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, { data: { balance: 1 } }) })
+  await store.ensureReady()
+  await store.actions.add({}, { locale: 'zh-CN' })
+  await store.actions['choose-template']({}, { locale: 'zh-CN', value: { preset: 'custom' } })
+  const saved = await store.actions.save({}, {
+    locale: 'zh-CN',
+    value: {
+      values: {
+        'data.form.name': '通用服务',
+        'data.form.url': 'https://api.example.com/balance',
+        'data.form.secret': 'sk-x',
+        'data.form.balancePath': 'data.cash + data.gift',
+        'data.form.extraUrl': 'https://api.example.com/subscription',
+        'data.form.extraFieldsText': '订阅剩余=data.total - data.used\n订阅到期=data.end_time',
+      },
+    },
+  })
+  assert.equal(saved.at(-1).text, '已保存')
+  const provider = (await loadConfig(configPath(home))).providers[0]
+  assert.equal(provider.balancePath, 'data.cash + data.gift')
+  assert.equal(provider.extraUrl, 'https://api.example.com/subscription')
+  assert.deepEqual(provider.extraFields, [
+    { label: '订阅剩余', path: 'data.total - data.used' },
+    { label: '订阅到期', path: 'data.end_time' },
+  ])
+
+  await store.actions.add({}, { locale: 'zh-CN' })
+  await store.actions['choose-template']({}, { locale: 'zh-CN', value: { preset: 'custom' } })
+  const blocked = await store.actions.save({}, {
+    locale: 'zh-CN',
+    value: {
+      values: {
+        'data.form.name': '明文服务',
+        'data.form.url': 'http://api.example.com/balance',
+        'data.form.secret': 'sk-x',
+        'data.form.balancePath': 'data.balance',
+      },
+    },
+  })
+  assert.equal(blocked.type, 'toast')
+  assert.match(blocked.text, /https/)
 })

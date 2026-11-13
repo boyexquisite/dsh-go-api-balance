@@ -758,3 +758,38 @@ test('providerToDraft 不带出密钥并深拷贝明细', () => {
   assert.equal(JSON.stringify(draft).includes('sk-1234567890'), false)
   assert.deepEqual(providerToDraft(null), { secret: '', secretSet: true })
 })
+
+// ---------- v2.1 安全：https 限制 / 权限自愈 ----------
+
+test('validateProvider 拒绝非本机的明文 http 地址（余额/登录/用量/附加）', () => {
+  const message = /https/
+  expectError(validDraft({ url: 'http://api.example.com/balance' }), 'url', message)
+  expectError(validDraft({ authType: 'login', username: 'u', loginUrl: 'http://api.example.com/login' }), 'loginUrl', message)
+  expectError(validDraft({ usageUrl: 'http://api.example.com/usage', usageFields: [{ label: 'a', path: 'x' }] }), 'usageUrl', message)
+  expectError(validDraft({
+    extraUrl: 'http://api.example.com/sub',
+    extraFields: [{ label: 'a', path: 'x' }],
+  }), 'extraUrl', message)
+  // 本机回环仍允许 http（手机本机引擎 / 本地反代）
+  assert.equal(validateProvider(validDraft({ url: 'http://127.0.0.1:8080/balance' })).ok, true)
+  assert.equal(validateProvider(validDraft({ url: 'http://localhost:8080/balance' })).ok, true)
+  assert.equal(validateProvider(validDraft({ url: 'https://api.example.com/balance' })).ok, true)
+})
+
+test('loadConfig / loadResults 读到宽权限文件会自动收紧为 0600（目录 0700）', async (t) => {
+  if (process.platform === 'win32') return
+  const home = await tempHome(t)
+  const dir = configDir(home)
+  await fs.mkdir(dir, { recursive: true, mode: 0o755 })
+  await fs.chmod(dir, 0o755)
+  await fs.writeFile(configPath(home), JSON.stringify(defaultConfig()), 'utf8')
+  await fs.chmod(configPath(home), 0o644)
+  await loadConfig(configPath(home))
+  assert.equal((await fs.stat(configPath(home))).mode & 0o777, 0o600)
+  assert.equal((await fs.stat(dir)).mode & 0o777, 0o700)
+
+  await fs.writeFile(resultsPath(home), JSON.stringify({ v: RESULTS_VERSION, results: {} }), 'utf8')
+  await fs.chmod(resultsPath(home), 0o644)
+  await loadResults(resultsPath(home))
+  assert.equal((await fs.stat(resultsPath(home))).mode & 0o777, 0o600)
+})

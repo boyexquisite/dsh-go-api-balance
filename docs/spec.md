@@ -83,14 +83,14 @@ export function providerToDraft(provider)                      // form 用：sec
 | `id` | string | `^p_[a-z0-9]{6,12}$`；新建时生成；编辑保留 |
 | `name` | string | trim 后 1–24 字；必填 |
 | `preset` | `'custom'\|'deepseek'\|'newapi'` | 默认 `custom` |
-| `url` | string | 必填，`http://` 或 `https://`，≤ 2048 字符 |
+| `url` | string | 必填；**带密钥的请求只允许 https**（本机 localhost/127.0.0.1 可用 http），≤ 2048 字符 |
 | `method` | `'GET'\|'POST'` | 默认 `GET` |
 | `authType` | `'bearer'\|'header'\|'query'\|'cookie'\|'basic'\|'login'` | 默认 `bearer` |
 | `secret` | string | 鉴权值；除 `cookie` 外 trim；≤ 2048；见下 |
 | `secretHeader` | string | `authType=header` 时用；默认 `'X-API-Key'`，≤ 64 |
 | `secretParam` | string | `authType=query` 时用；默认 `'key'`，≤ 64 |
 | `username` | string | `basic` / `login` 必填；≤ 128 |
-| `loginUrl` | string | `authType=login` 必填，http(s)；≤ 2048 |
+| `loginUrl` | string | `authType=login` 必填，https（本机回环可用 http）；≤ 2048 |
 | `tokenPath` | string | `authType=login` 时取 token 的路径；默认 `'data.token'` |
 | `tokenHeader` | string | `login` 取到 token 后放哪个头；默认 `'Authorization'`；值为 `tokenPrefix + token` |
 | `tokenPrefix` | string | 默认 `'Bearer '`；≤ 32 |
@@ -99,7 +99,7 @@ export function providerToDraft(provider)                      // form 用：sec
 | `balancePath` | string | 必填，JSON 取值路径（§4） |
 | `currencyPath` | string | 可选；取币种代码（如 `CNY`） |
 | `detailPaths` | `[{label,path,kind?}]` | ≤ 6 项；label 1–20 字；path 合法（§4 表达式）；kind 可选 `money`/`count`/`text`/`date` |
-| `extraUrl` | string | 可选；附加信息请求（如 new-api 订阅），http(s)，≤ 512 |
+| `extraUrl` | string | 可选；附加信息请求（如 new-api 订阅），https（本机回环可用 http），≤ 512 |
 | `extraFields` | `[{label,path,kind?}]` | ≤ 4 项；path 用 §4 表达式；kind 同上 |
 | `divisor` | number | > 0；默认 1；0.000001..1e12 |
 | `multiplier` | number | > 0；默认 1；0.000001..1e12 |
@@ -235,7 +235,7 @@ export function presetOptions() // → [{ label, value }] 给 UI 选项（含 cu
   7. 服务表单（`data.formOpen` 时）：`form`（提交动作 `save`）内放 `tabs` 三组：基本信息 / 鉴权 / 字段与显示；表单外「取消」动作。
 - 表单字段（`bind` 全部为 `data.form.<字段>`，同一视图内不重复）：
   `preset`(select 3 项) `name` `url` `method`(select) `authType`(select 6 项) `secret` `secretHeader` `secretParam` `username` `loginUrl` `tokenPath` `tokenHeader` `tokenPrefix` `balancePath` `currencyPath` `detailText`（每行 `标签=路径`）`divisor`(number) `multiplier`(number) `symbol` `decimals`(stepper 0..4) `headersText`(multiline) `bodyText`(multiline) `enabled`(toggle)。
-- **4 KiB 提交预算**（App 硬上限）：视图 `maxLength` 收紧为 `url 512`、`secret 768`、`headersText 256`、`bodyText 256`、`detailText 384`、`loginUrl 512`、`balancePath/currencyPath 120`、`name 24`、`username 100`、`tokenPath 120`、`tokenHeader 64`、`tokenPrefix 32`、`secretHeader 64`、`secretParam 64`、`symbol 8`；单测按最坏情况填满断言 `Buffer.byteLength(JSON.stringify(values)) < 4096`。core 校验仍按 §2 接受文件里更长的值。
+- **4 KiB 提交预算**（App 硬上限）：视图 `maxLength` 见 `FORM_LIMITS`（v0.3.0：url 380、loginUrl 260、secret 600、headersText/bodyText 180、detailText 280、usageUrl 280、extraUrl 240、extraFieldsText 100 等）；单测按最坏情况填满断言 `Buffer.byteLength(JSON.stringify(values)) < 4096`。core 校验仍按 §2 接受文件里更长的值。
 - 视图预算：整树 JSON ≤32 KiB、节点 ≤120、深度 ≤8、单个 `stack`/`row` 直接孩子 ≤32、`tabs` ≤8 项、`list` ≤50 行、`keyValue` ≤24 项、`actions` ≤4 个。
 - `select` 动作：`event.value.id` → 设为 `selectedId`，清 `test`/`confirmDelete`，`patch` 数据（或 emit）并 `refresh` 视图（结构可能变化）。
 - `refresh`：延后效果，`queryAll(enabled,{signal})` → 写 `results`、`saveResults`、更新数据、`toast '已更新 N 家'`；`signal.aborted` 立即返回 `{}`。
@@ -568,5 +568,40 @@ export function presetOptions() // → [{ label, value }] 给 UI 选项（含 cu
 
 ### 20.4 测试
 
-- 306 项 `node --test` 全绿；检查器 0 error。
+- 314 项 `node --test` 全绿；检查器 0 error。
 - 真实接口验证：DeepSeek `¥270.08`；STA1N `🍪4,190.37`、近 7 天 Token 15.6 亿 / 请求 6,945，`/api/subscription/self` 200 空订阅 → 订阅行不显示。
+
+
+## 21. v0.3.0：安全加固与「通用」补全
+
+### 21.1 强制 https
+
+- 新增 `lib/url.js`：`isSafeUrl(url)` = https，或 http + 本机回环（`localhost` / `127.0.0.1` / `::1` / `*.localhost`）。
+- `validateProvider` 对 `url` / `loginUrl` / `usageUrl` / `extraUrl` 都走该检查；非本机明文 http 报「为了不让密钥明文上网，地址请用 https（本机 localhost 可用 http）」。
+- `queryProvider` / `loginForToken` 在请求前再校验一次（防旧配置绕过校验）；用量/附加信息地址不安全时静默跳过，不发送密钥。
+
+### 21.2 跳转防泄露
+
+- `rawRequest` 改用 `redirect: 'manual'`，手动跟随最多 3 跳，且必须同源（协议+host+port 一致）。
+- 跨域跳转 → `QueryError('接口跳转到其它域名，为防密钥泄露已停止')`，不会把 Authorization / 自定义头带到第三方。
+- 301/302/303 按 fetch 语义改 GET 并丢 body；307/308 保留方法。
+
+### 21.3 权限自愈
+
+- `loadConfig` / `loadResults` 读成功后 best-effort `chmod 0600` 文件、`0700` 目录；`writeFileAtomic` 创建时也收紧目录权限。
+- 单测覆盖：644/755 的文件和目录读取后变 600/700。
+
+### 21.4 通用性补全
+
+- 自定义服务的「高级」页签新增 **附加信息地址** 与 **附加信息字段**（每行 `标签=路径`，≤4 条），任意平台也能配订阅/额度类第二次请求；余额/明细/附加/用量路径都支持 `a + b`、`a - b` 与 `[]` 通配。
+- 视图表单最坏提交仍 < 4 KiB（`FORM_LIMITS` 同步收紧）。
+
+### 21.5 说明文档
+
+- 新增 `SECURITY.md`：数据流向、强制约束、防不住的风险（主机被入侵、供应链、恶意地址、Cookie 鉴权）、给使用者和分发者的建议。
+- `README*` 增加「安全与隐私」小节。
+
+### 21.6 测试
+
+- 314 项 `node --test` 全绿；检查器 0 error。
+- 新增：https 限制、同源/跨域跳转、跳转次数、用量/附加不安全地址静默跳过、权限自愈、自定义附加信息落盘。
