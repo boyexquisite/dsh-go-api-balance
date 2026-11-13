@@ -10,7 +10,6 @@ import { presetDraft } from '../lib/presets.js'
 import {
   FORM_LIMITS,
   createState,
-  detailTextOf,
   draftForm,
   emptyForm,
   hasComponent,
@@ -260,7 +259,6 @@ function samples () {
   const confirm = stateWithProvider({ confirmDelete: { id: 'p_abc12345' } })
 
   const tested = stateWithProvider()
-  tested.test = { id: 'p_abc12345', title: 'DeepSeek · 接口原始返回（已脱敏）', raw: '{"balance":12.5}' }
 
   const worst = freshState({ formOpen: true, confirmDelete: { id: 'p_00000000' } })
   for (let index = 0; index < 24; index++) {
@@ -278,7 +276,6 @@ function samples () {
     })
   }
   worst.form = providerForm(worst.config.providers[0])
-  worst.test = { id: worst.config.providers[0].id, title: 'x'.repeat(20), raw: 'x'.repeat(8000) }
 
   const picking = freshState({ pickTemplate: true })
   const deepseekForm = freshState({ formOpen: true, form: draftForm(presetDraft('deepseek')) })
@@ -294,7 +291,7 @@ function samples () {
   }
 }
 
-// ---------- 文案 ----------// ---------- 文案 ----------
+// ---------- 文案 ----------
 
 function leafKeys (value, prefix = '', out = []) {
   if (Array.isArray(value)) {
@@ -958,7 +955,7 @@ test('表单草稿：空表单默认值、编辑草稿不回填密钥、明细�
   assert.equal(form.preset, 'newapi')
   assert.equal(form.enabled, true)
   assert.deepEqual(parseDetailText(form.detailText), provider.detailPaths)
-  assert.equal(detailTextOf(provider.detailPaths), '充值余额=data.topped\n赠送余额=data.granted')
+  assert.equal(providerForm(provider).detailText, '充值余额=data.topped\n赠送余额=data.granted')
   assert.deepEqual(parseDetailText('  标签 =  data.a  \n\n没有等号'), [
     { label: '标签', path: 'data.a' },
     { label: '', path: '没有等号' },
@@ -1746,7 +1743,7 @@ test('卡片预算：服务很多时按节点预算截断并给提示，data.car
 })
 
 
-// ---------- v1.5：chips 动作/确认 ----------
+// ---------- 菜单/删除确认动作 ----------
 
 test('actions: 菜单动作缺 id、无确认态时都不误删', async (t) => {
   const home = await tempHome(t)
@@ -3416,7 +3413,7 @@ test('保存时后台刷新在途只补一轮，不重复刷', async (t) => {
 
 test('删除服务中止在途手动刷新后，会给剩余服务补一轮', async (t) => {
   const home = await tempHome(t)
-  const providers = ['one', 'two'].map((host, index) => makeProvider({
+  const providers = ['one', 'two'].map((host) => makeProvider({
     id: `p_${host}0001`,
     name: host,
     preset: 'custom',

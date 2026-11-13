@@ -32,7 +32,7 @@
 
 ### 可直接做预设（按易用度排序）
 
-1. **OpenRouter —— 易**：`GET https://openrouter.ai/api/v1/key`，普通 Bearer key，余额取 `data.limit_remaining`、用量取 `data.usage_daily` / `data.usage_monthly`。现有「自定义」模板零改动能直接配（余额字段可能为 null，要接受空值）。账户总额度（`total_credits - total_usage`）需要 Management key，且要插件做减法，暂不做预设。
+1. **OpenRouter —— 易**：`GET https://openrouter.ai/api/v1/key`，普通 Bearer key，余额取 `data.limit_remaining`、用量取 `data.usage_daily` / `data.usage_monthly`。现有「自定义」模板零改动能直接配（余额字段可能为 null，要接受空值）。账户总额度（`total_credits - total_usage`）需要 Management key，且要插件做减法，暂不做预设。（后续修正：0.3.0 已内置 openrouter 预设。）
 2. **xAI Grok —— 中**：Management key + team_id，`GET /v1/billing/teams/{team_id}/prepaid/balance`。需要给预设加一个「team_id」输入 + 管理密钥，且返回字段要先实测确认。
 3. **Together —— 中**：Bearer key，`GET /v1/billing/usage?month=YYYY-MM&granularity=day`，按月返回含金额的 line items，要插件按数组求和并加 `{month}` 参数；响应字段待实测。
 4. **Fireworks —— 中**：account_id + 时间区间，`/v1/accounts/{account_id}/billing/summary`，金额 `units+nanos/1e9`；要插件支持路径参数、时间区间和金额换算。
@@ -55,7 +55,7 @@ ChatGPT/Codex 订阅额度、Claude Pro/Max、Gemini Advanced / AI Studio 订阅
 
 ### 给插件实现的落地建议（按需扩展）
 
-- 现有能力只覆盖「单 GET + 单层数值 + 单一 usage 数组求和」；上述「中」档平台普遍缺 4 个能力：
+- 当时能力只覆盖「单 GET + 单层数值 + 单一 usage 数组求和」；上述「中」档平台普遍缺 4 个能力（后续修正：v1.9/v2.0 已补双层数组求和、表达式、附加请求、`{month_start}` 等时间占位符）：
   1. 路径参数（`{team_id}`、`{account_id}`）；
   2. 动态时间参数（`{month}`、`{start}`、`{end}`，现有只有 `{7d}`/`{now}` 且仅用于 usageUrl）；
   3. 双层数组求和（`data[].results[].amount.value`，OpenAI/Anthropic 都需要）；

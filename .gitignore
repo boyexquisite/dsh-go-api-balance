@@ -5,3 +5,5 @@ npm-debug.log*
 .idea/
 .vscode/
 coverage/
+.agents/
+dist/

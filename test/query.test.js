@@ -739,7 +739,7 @@ test('login 鉴权时用量请求复用 token 缓存，不重复登录', async (
   assert.equal(usageCall.init.headers.Authorization, 'Bearer tok-1')
 })
 
-test('用量 usageArrayPath 为空时对整份响应 JSON 用 sumByPath', async () => {
+test('用量 usageArrayPath 为空时对整份响应 JSON 用 evalExpression', async () => {
   const cases = [
     [{ data: [{ token_used: 7 }, { token_used: 2 }] }, 'data[].token_used', 9],
     [{ data: { buckets: [{ tokens: 1 }, { tokens: '2' }] } }, 'data.buckets[].tokens', 3],
@@ -2171,8 +2171,7 @@ test('3xx 错误分支都会取消 body：跨域 / 跳转过多 / 缺 Location',
   // 跳转过多
   const cancels = []
   const hopImpl = recordingFetch((url) => {
-    let canceled = false
-    const body = new ReadableStream({ pull () { }, cancel () { canceled = true; cancels.push(url) } })
+    const body = new ReadableStream({ pull () { }, cancel () { cancels.push(url) } })
     return { status: 302, ok: false, body, headers: new Headers({ location: '/next' }), text: async () => { throw new Error('no') } }
   })
   const hop = await createRunner({ fetchImpl: hopImpl }).queryProvider(makeProvider({ url: 'https://api.example.com/a' }))

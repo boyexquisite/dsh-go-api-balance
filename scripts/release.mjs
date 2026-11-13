@@ -2,9 +2,9 @@
 // Release helper: bump the version, commit, tag and push atomically. GitHub
 // Actions publishes to npm and creates the release from the tag.
 //
-//   node scripts/release.mjs 0.2.8
-//   node scripts/release.mjs 0.2.8 --dry-run          # preflight only, no changes
-//   node scripts/release.mjs 0.2.8 --branch main      # expected branch (default main)
+//   node scripts/release.mjs 0.7.4
+//   node scripts/release.mjs 0.7.4 --dry-run          # preflight only, no changes
+//   node scripts/release.mjs 0.7.4 --branch main      # expected branch (default main)
 //
 // Safety model: every check runs BEFORE anything is written. The version bump,
 // commit, tag and push then happen as one sequence; the push is atomic, so the

@@ -1,5 +1,7 @@
 # dsh-Go 原生面板 recon（task-1）
 
+> 历史调研（2026-11-13 实现期）：平台字段、上限与协议事实仍有效；`composer.strip`、`maskSecret`、`rawPreview`、`select/selectedId`、`total` 等早期方案已废弃。
+
 > 给 ui 实现「API 余额」面板用的**事实清单**：字段名、代码形状、上限、出处。
 > 基准：公开仓库 `ccch1mneyyy/dsh-Go`，main @ `efa70c152128dfdc03e17441f3b4848ed41fbffe`（2026-11-13 08:31 +0800）。
 > 本机 `/root/.dsh/skills/dsh-go-plugin/kit/` 的检查器与仓库 `sdk/plugin-kit/` 当前完全一致（`lib/testing.js`、`schema/view.schema.json` 的 md5 相同），所以本机 `check.mjs` 的结论对得上。

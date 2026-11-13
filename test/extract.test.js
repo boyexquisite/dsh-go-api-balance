@@ -5,7 +5,6 @@ import {
   getByPath,
   isExpression,
   pickNumber,
-  sumByPath,
   validateExpression,
   validatePath,
   validateSumPath,
@@ -111,7 +110,7 @@ test('pickNumber 拒绝非数字值', () => {
   }
 })
 
-// ---------- v1.9 sumByPath ----------
+// ---------- evalExpression 单路径 ----------
 
 test('validateSumPath 接受 [] 通配，拒绝非法结构', () => {
   for (const path of [
@@ -129,17 +128,17 @@ test('validateSumPath 接受 [] 通配，拒绝非法结构', () => {
   }
 })
 
-test('sumByPath 无 [] 时等价单值', () => {
+test('evalExpression 无 [] 时等价单值', () => {
   const obj = { data: { quota: 12.5, text: '7', bad: 'x', nil: null } }
-  assert.equal(sumByPath(obj, 'data.quota'), 12.5)
-  assert.equal(sumByPath(obj, 'data.text'), 7)
-  assert.equal(sumByPath(obj, 'data.bad'), null)
-  assert.equal(sumByPath(obj, 'data.nil'), null)
-  assert.equal(sumByPath(obj, 'data.missing'), null)
-  assert.equal(sumByPath(obj, '$.data.quota'), 12.5)
+  assert.equal(evalExpression(obj, 'data.quota'), 12.5)
+  assert.equal(evalExpression(obj, 'data.text'), 7)
+  assert.equal(evalExpression(obj, 'data.bad'), null)
+  assert.equal(evalExpression(obj, 'data.nil'), null)
+  assert.equal(evalExpression(obj, 'data.missing'), null)
+  assert.equal(evalExpression(obj, '$.data.quota'), 12.5)
 })
 
-test('sumByPath 支持嵌套 [] 通配求和（含数字字符串）', () => {
+test('evalExpression 支持嵌套 [] 通配求和（含数字字符串）', () => {
   const obj = {
     data: [
       { results: [{ amount: { value: 1 } }, { amount: { value: '2' } }] },
@@ -147,12 +146,12 @@ test('sumByPath 支持嵌套 [] 通配求和（含数字字符串）', () => {
       { results: [] },
     ],
   }
-  assert.equal(sumByPath(obj, 'data[].results[].amount.value'), 6.5)
-  assert.equal(sumByPath(obj, 'data[0].results[].amount.value'), 3)
-  assert.equal(sumByPath(obj, 'data[1].results[0].amount.value'), 3.5)
+  assert.equal(evalExpression(obj, 'data[].results[].amount.value'), 6.5)
+  assert.equal(evalExpression(obj, 'data[0].results[].amount.value'), 3)
+  assert.equal(evalExpression(obj, 'data[1].results[0].amount.value'), 3.5)
 })
 
-test('sumByPath 跳过缺失/非数字项，全无数值返回 null', () => {
+test('evalExpression 跳过缺失/非数字项，全无数值返回 null', () => {
   const obj = {
     data: [
       { results: [{ amount: 2 }, { amount: 'abc' }, {}] },
@@ -160,27 +159,27 @@ test('sumByPath 跳过缺失/非数字项，全无数值返回 null', () => {
       {},
     ],
   }
-  assert.equal(sumByPath(obj, 'data[].results[].amount'), 6)
-  assert.equal(sumByPath(obj, 'data[].results[].missing'), null)
-  assert.equal(sumByPath({ data: [] }, 'data[].amount'), null)
-  assert.equal(sumByPath({ data: [{ amount: null }] }, 'data[].amount'), null)
+  assert.equal(evalExpression(obj, 'data[].results[].amount'), 6)
+  assert.equal(evalExpression(obj, 'data[].results[].missing'), null)
+  assert.equal(evalExpression({ data: [] }, 'data[].amount'), null)
+  assert.equal(evalExpression({ data: [{ amount: null }] }, 'data[].amount'), null)
 })
 
-test('sumByPath 对 [] 通配对象取 values，另支持字符串键下标', () => {
+test('evalExpression 对 [] 通配对象取 values，另支持字符串键下标', () => {
   const obj = { data: { a: { v: 1 }, b: { v: 2 } } }
-  assert.equal(sumByPath(obj, 'data[].v'), 3)
-  assert.equal(sumByPath({ data: { 0: { v: 5 } } }, 'data[0].v'), 5)
+  assert.equal(evalExpression(obj, 'data[].v'), 3)
+  assert.equal(evalExpression({ data: { 0: { v: 5 } } }, 'data[0].v'), 5)
 })
 
-test('sumByPath 空值/非法路径/异常输入不抛异常', () => {
-  assert.equal(sumByPath({}, 'data[]'), null)
-  assert.equal(sumByPath(null, 'a'), null)
-  assert.equal(sumByPath(undefined, 'a'), null)
-  assert.equal(sumByPath('text', 'a'), null)
-  assert.equal(sumByPath([{ a: 1 }], 'a'), null)
-  assert.equal(sumByPath({ a: 1 }, 'a b'), null)
-  assert.equal(sumByPath({ a: 1 }, ''), null)
-  assert.equal(sumByPath({ a: 0 }, 'a'), 0)
+test('evalExpression 空值/非法路径/异常输入不抛异常', () => {
+  assert.equal(evalExpression({}, 'data[]'), null)
+  assert.equal(evalExpression(null, 'a'), null)
+  assert.equal(evalExpression(undefined, 'a'), null)
+  assert.equal(evalExpression('text', 'a'), null)
+  assert.equal(evalExpression([{ a: 1 }], 'a'), null)
+  assert.equal(evalExpression({ a: 1 }, 'a b'), null)
+  assert.equal(evalExpression({ a: 1 }, ''), null)
+  assert.equal(evalExpression({ a: 0 }, 'a'), 0)
 })
 
 // ---------- v2.0 表达式 ----------
@@ -220,12 +219,12 @@ test('evalExpression 任一操作数取不到就给 null', () => {
   assert.equal(evalExpression({ data: { a: 1 } }, 'data.a * 2'), null)
 })
 
-test('sumByPath：连续 [] 通配的访问次数有预算，超了返回 null 不卡死', () => {
+test('evalExpression：连续 [] 通配的访问次数有预算，超了返回 null 不卡死', () => {
   // 每层 2 个元素、深 22 层：逐层展开是 2^22 ≈ 420 万次访问，预算会提前截断。
   let node = { v: 1 }
   for (let depth = 0; depth < 22; depth++) node = { left: node, right: node }
   const started = Date.now()
-  assert.equal(sumByPath({ a: node }, 'a' + '[]'.repeat(22)), null)
+  assert.equal(evalExpression({ a: node }, 'a' + '[]'.repeat(22)), null)
   assert.ok(Date.now() - started < 2000, '不应耗时过久')
 })
 
@@ -233,7 +232,7 @@ test('表达式里的多个 [] 操作数共享同一份访问预算', () => {
   const items = Array.from({ length: 60000 }, () => 1)
   const obj = { a: items }
   // 单个操作数在预算内
-  assert.equal(sumByPath(obj, 'a[]'), 60000)
+  assert.equal(evalExpression(obj, 'a[]'), 60000)
   // 两个操作数共享 10 万预算，总和超预算 → 整条表达式失败，不返回部分结果
   assert.equal(evalExpression(obj, 'a[] + a[]'), null)
 })

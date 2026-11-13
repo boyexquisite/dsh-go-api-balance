@@ -21,14 +21,10 @@
     "LICENSE"
   ],
   "keywords": [
-    "dsh",
     "dsh-go",
-    "deepseek-harness",
-    "harness",
     "plugin",
     "balance",
-    "api-key",
-    "dshGo"
+    "api-key"
   ],
   "repository": {
     "type": "git",

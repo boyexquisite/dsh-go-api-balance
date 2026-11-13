@@ -1,5 +1,7 @@
 # dsh-go-api-balance · v1 实现规格（契约）
 
+> 历史说明：§1–§10 是 v1 契约，其中 `maskSecret`/`providerToDraft`/`stripEnabled`/`rawPreview`/`queryProvider`/`queryAll`/`PRESETS` 等 API 已在 0.7.x 删除；现行实现以 `lib/` 与 §11 之后的版本记录为准。
+
 > 目标：DSH Go 手机 App 原生面板「API 余额」。面板里可添加/编辑任意「服务」（地址 + 鉴权 + 余额字段路径），
 > 拉取并展示余额；内置 DeepSeek 官方与 new-api/one-api 中转两个模板，其余完全自定义。
 > 凭证只写主机本地文件，不进模型上下文、不进日志、不上传。
@@ -523,8 +525,8 @@ export function presetOptions() // → [{ label, value }] 给 UI 选项（含 cu
 ### 19.1 core：引擎能力
 
 1. **URL 占位符**（provider.url 与 usageUrl 都替换）：`{now}`、`{today}`、`{7d}`、`{month_start}`（本地时区 epoch 秒）；`{now_iso}`、`{today_iso}`、`{7d_iso}`、`{month_start_iso}`（RFC3339 UTC，如 `2026-11-01T00:00:00Z`）。本地时区用运行主机时区。
-2. **嵌套数组求和**：新增 `sumByPath(obj, path)`，路径支持 `[]` 通配：`data[].results[].amount.value`，对命中的数值（含数字字符串）求和；无 `[]` 时等价单值。`usageFields` 一律用 sumByPath 取值。
-3. **同响应取用量**：`usageFields` 非空且 `usageUrl` 为空 → 直接从余额那次响应解析 usage（不额外请求）。`usageArrayPath` 为空时先对整份 JSON 用 sumByPath，取不到再回退旧版「自动找数组」逐项求和；非空时若解析为数组则逐项求和、对象则单对象取值。
+2. **嵌套数组求和**：内部 `sumWithBudget(obj, path)` 支持 `[]` 通配：`data[].results[].amount.value`，对命中的数值（含数字字符串）求和；对外统一走 `evalExpression`（单路径时等价）。`usageFields` 一律用 evalExpression 取值。
+3. **同响应取用量**：`usageFields` 非空且 `usageUrl` 为空 → 直接从余额那次响应解析 usage（不额外请求）。`usageArrayPath` 为空时先对整份 JSON 用 evalExpression，取不到再回退旧版「自动找数组」逐项求和；非空时若解析为数组则逐项求和、对象则单对象取值。
 4. **只用量的服务**：允许 `balancePath` 为空（必须至少 1 个 usageFields）：只发一次 `provider.url` 请求（鉴权照常），`Result.ok=true`、`balance=null`，usage 照常。
 5. **可空余额**：Provider 新增 `balanceOptional: boolean`（默认 false）；`true` 时 `balancePath` 解析为 null 不视为失败（ok=true、balance=null），供 OpenRouter「未设限额」用。
 6. `newapi` 预设的 detailPaths 增加 `{label:'订阅额度', path:'data.subscription_quota'}`（老站没该字段时该行会缺失，展示层过滤）。
