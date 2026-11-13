@@ -95,3 +95,24 @@ test('https 强制的回环白名单只认精确本机地址', async () => {
   assert.equal(isSafeUrl('http://0.0.0.0/x'), false)
   assert.equal(isSafeUrl('http://localhost.evil.com/x'), false)
 })
+
+test('地址里的空白字符与内嵌凭据不能把请求伪装到别的域名', async () => {
+  const { isSafeUrl, urlSafetyError, URL_CHARS_MESSAGE, URL_CREDENTIALS_MESSAGE } = await import('../lib/url.js')
+  // WHATWG URL 会静默删掉 tab/换行，`https://a.com\n@evil.com` 真正连的是 evil.com。
+  for (const disguised of [
+    'https://a.com\n@evil.com',
+    'https://a.com\r@evil.com',
+    'https://a.com\t@evil.com',
+    'https://a.com @evil.com',
+    'https://a.com\u0000@evil.com',
+  ]) {
+    assert.equal(isSafeUrl(disguised), false, `必须拒绝：${JSON.stringify(disguised)}`)
+    assert.equal(urlSafetyError(disguised), URL_CHARS_MESSAGE)
+  }
+  assert.equal(isSafeUrl('https://user:pw@a.com/x'), false)
+  assert.equal(urlSafetyError('https://user:pw@a.com/x'), URL_CREDENTIALS_MESSAGE)
+  // 正常地址与 URL 里的百分号编码不受影响
+  assert.equal(urlSafetyError('https://a.com/x?q=a%20b'), '')
+  assert.equal(isSafeUrl('https://a.com/x?q=a%20b'), true)
+  assert.equal(isSafeUrl('http://127.0.0.1:8080/x'), true)
+})

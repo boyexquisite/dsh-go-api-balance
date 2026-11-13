@@ -1035,6 +1035,28 @@ test('resolveUnit CUSTOM：自定义符号与汇率（🍪）', async () => {
   assert.deepEqual(unit, { divisor: 200000, multiplier: 2.5, symbol: '🍪', decimals: 2 })
 })
 
+test('resolveUnit CNY/CUSTOM：非法汇率（0/负数/NaN/非数字）回落到 1，不把余额算成负数', async () => {
+  const cases = [0, -7.2, 'nope', null, Infinity]
+  for (const [index, rate] of cases.entries()) {
+    const impl = statusOnlyFetch(statusBody({ quota_display_type: 'CNY', usd_exchange_rate: rate }))
+    const unit = await resolveUnit(
+      { url: `https://unit-cny-bad-${index}.example/api/user/self` },
+      { fetchImpl: impl },
+    )
+    assert.deepEqual(unit, { divisor: 500000, multiplier: 1, symbol: '¥', decimals: 2 }, `CNY rate ${rate}`)
+  }
+  const custom = await resolveUnit(
+    { url: 'https://unit-custom-bad.example/api/user/self' },
+    {
+      fetchImpl: statusOnlyFetch(statusBody({
+        quota_display_type: 'CUSTOM',
+        custom_currency_exchange_rate: -2.5,
+      })),
+    },
+  )
+  assert.equal(custom.multiplier, 1)
+})
+
 test('resolveUnit TOKENS：不换算、无符号', async () => {
   const impl = statusOnlyFetch(statusBody({ quota_display_type: 'TOKENS' }))
   const unit = await resolveUnit(
@@ -1865,6 +1887,29 @@ test('明文 http 地址拒绝请求（本机回环除外）', async () => {
   const loopback = await runner.queryProvider(makeProvider({ url: 'http://127.0.0.1:8080/balance' }))
   assert.equal(loopback.ok, true)
   assert.deepEqual(calls, ['http://127.0.0.1:8080/balance'])
+})
+
+test('伪装地址（内嵌凭据/空白字符）在取数层也拒绝，一个请求都不发', async () => {
+  const calls = []
+  const impl = async (url) => {
+    calls.push(url)
+    return responseOf(200, { data: { balance: 1 } })
+  }
+  const runner = createRunner({ fetchImpl: impl })
+  for (const url of [
+    'https://api.example.com\n@evil.example/balance',
+    'https://api.example.com\t@evil.example/balance',
+    'https://user:pw@api.example.com/balance',
+  ]) {
+    const result = await runner.queryProvider(makeProvider({ url }))
+    assert.equal(result.ok, false, `必须拒绝：${JSON.stringify(url)}`)
+    assert.match(result.error, /https/)
+  }
+  assert.deepEqual(calls, [], '被拒绝的地址不能发出请求（密钥不能到 evil.example）')
+  // 正常 https 不受影响
+  const ok = await runner.queryProvider(makeProvider())
+  assert.equal(ok.ok, true)
+  assert.deepEqual(calls, ['https://api.example.com/balance'])
 })
 
 test('同源跳转自动跟随，鉴权头保留', async () => {

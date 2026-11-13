@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -46,6 +47,32 @@ function expectError (draft, field, pattern, options) {
 }
 
 // ---------- 路径 ----------
+
+test('resolveHome 在 HOME 缺失 / os.homedir 抛错 / 假文件系统时仍给出可用路径', () => {
+  const saved = { HOME: process.env.HOME, DSH_HOME: process.env.DSH_HOME, USERPROFILE: process.env.USERPROFILE }
+  const originalHomedir = os.homedir
+  try {
+    delete process.env.DSH_HOME
+    delete process.env.HOME
+    delete process.env.USERPROFILE
+    os.homedir = () => { throw new Error('SystemError: no passwd entry') }
+    const home = resolveHome({})
+    assert.equal(typeof home, 'string')
+    assert.ok(home !== '' && home.endsWith('.dsh'), `fallback home: ${home}`)
+    os.homedir = originalHomedir
+    // 假文件系统上的 HOME/DSH_HOME 不能被采用（递归 mkdir 会卡死宿主）
+    assert.ok(!resolveHome({ DSH_HOME: '/dev/null' }).startsWith('/dev'))
+    assert.ok(!resolveHome({ HOME: '/proc/self' }).startsWith('/proc'))
+    // 正常 HOME 仍能拼出 ~/.dsh
+    assert.equal(resolveHome({ HOME: '/home/tester' }), path.join('/home/tester', '.dsh'))
+  } finally {
+    os.homedir = originalHomedir
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  }
+})
 
 test('resolveHome 优先用 DSH_HOME，空值回落到 ~/.dsh', () => {
   assert.equal(resolveHome({ DSH_HOME: '/opt/custom' }), '/opt/custom')
@@ -660,6 +687,41 @@ test('validateProvider 拒绝非本机的明文 http 地址（余额/登录/用�
   assert.equal(validateProvider(validDraft({ url: 'http://127.0.0.1:8080/balance' })).ok, true)
   assert.equal(validateProvider(validDraft({ url: 'http://localhost:8080/balance' })).ok, true)
   assert.equal(validateProvider(validDraft({ url: 'https://api.example.com/balance' })).ok, true)
+})
+
+test('validateProvider 拒绝空白字符与内嵌凭据伪装的地址（余额/登录/用量/附加）', () => {
+  // WHATWG URL 会静默删掉 tab/换行：https://a.com\n@evil.com 实际连 evil.com。
+  expectError(validDraft({ url: 'https://api.example.com\n@evil.example/x' }), 'url', /空白字符/)
+  expectError(validDraft({ url: 'https://api.example.com\t@evil.example/x' }), 'url', /空白字符/)
+  expectError(validDraft({ url: 'https://user:pw@api.example.com/x' }), 'url', /用户名或密码/)
+  expectError(validDraft({ authType: 'login', username: 'u', loginUrl: 'https://api.example.com\r@evil/x' }), 'loginUrl', /空白字符/)
+  expectError(validDraft({
+    usageUrl: 'https://api.example.com\n@evil.example/usage',
+    usageFields: [{ label: 'a', path: 'x' }],
+  }), 'usageUrl', /空白字符/)
+  expectError(validDraft({
+    extraUrl: 'https://user:pw@api.example.com/sub',
+    extraFields: [{ label: 'a', path: 'x' }],
+  }), 'extraUrl', /用户名或密码/)
+  // 正常地址不受影响
+  assert.equal(validateProvider(validDraft({ url: 'https://api.example.com/balance?x=1' })).ok, true)
+})
+
+test('saveConfig 拒绝 /proc、/sys、/dev 下的路径（递归 mkdir 会卡死宿主）', () => {
+  if (process.platform === 'win32') return
+  const configUrl = new URL('../lib/config.js', import.meta.url).href
+  const child = spawnSync(process.execPath, ['--input-type=module', '-e', `
+    import { saveConfig, defaultConfig } from ${JSON.stringify(configUrl)}
+    try {
+      await saveConfig(defaultConfig(), '/proc/dsh-balance-audit/config.json')
+      console.log('WROTE')
+    } catch (error) {
+      console.error(error.message)
+      process.exit(3)
+    }
+  `], { encoding: 'utf8', timeout: 8000 })
+  assert.notEqual(child.status, 0, 'pseudo-fs 路径必须拒绝写入')
+  assert.match(String(child.stderr), /拒绝写入/)
 })
 
 test('loadConfig / loadResults 读到宽权限文件会自动收紧为 0600（目录 0700）', async (t) => {
