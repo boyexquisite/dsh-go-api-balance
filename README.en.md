@@ -45,6 +45,9 @@ The host must be able to reach the balance endpoints you configure.
    - **Custom**: URL/auth/balance path in "Common", the rest under "Advanced".
 3. It refreshes right after saving; opening the panel refreshes too.
 
+> The app caps a single form submit at **4 KiB**: keep URLs, keys and field paths ASCII, and
+> don't fill every Chinese label/field to its maximum (a full multi-byte form can exceed the limit).
+
 Field paths look like `data.quota` or `balance_infos[0].total_balance`, and simple arithmetic is
 supported: `a + b`, `a - b` (e.g. cash + gift, subscription total - used).
 

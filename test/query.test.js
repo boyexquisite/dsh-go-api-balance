@@ -96,7 +96,6 @@ test('queryProvider 成功时返回完整 Result', async () => {
     { label: '充值余额', value: 12.5 },
     { label: '没有的', value: null },
   ])
-  assert.equal(result.rawPreview, null)
   assert.equal(result.fetchedAt, 1700000000000)
 })
 
@@ -503,87 +502,6 @@ test('登录响应取不到 token 时返回登录失败文案', async () => {
   assert.equal(result2.error, '登录失败，检查账号密码')
 })
 
-// ---------- 预览 ----------
-
-test('preview=false 时 rawPreview 为 null', async () => {
-  const impl = recordingFetch(() => responseOf(200, { data: { balance: 1 } }))
-  const runner = createRunner({ fetchImpl: impl })
-  const result = await runner.queryProvider(makeProvider())
-  assert.equal(result.rawPreview, null)
-})
-
-test('preview=true 时给 JSON 文本预览', async () => {
-  const payload = { data: { balance: 1.5, currency: 'CNY' } }
-  const impl = recordingFetch(() => responseOf(200, payload))
-  const runner = createRunner({ fetchImpl: impl })
-  const result = await runner.queryProvider(makeProvider(), { preview: true })
-  assert.equal(result.rawPreview, JSON.stringify(payload))
-})
-
-test('预览截断到 8192 字符', async () => {
-  const payload = { data: { balance: 1, padding: 'x'.repeat(20000) } }
-  const impl = recordingFetch(() => responseOf(200, payload))
-  const runner = createRunner({ fetchImpl: impl })
-  const result = await runner.queryProvider(makeProvider(), { preview: true })
-  assert.equal(result.rawPreview.length, 8192)
-  assert.equal(result.rawPreview, JSON.stringify(payload).slice(0, 8192))
-})
-
-test('preview 时取值路径不存在仍回显原始 JSON 供修正路径', async () => {
-  const payload = { data: { other: 1 }, code: 0 }
-  const impl = recordingFetch(() => responseOf(200, payload))
-  const runner = createRunner({ fetchImpl: impl })
-  const result = await runner.queryProvider(makeProvider(), { preview: true })
-  assert.equal(result.ok, false)
-  assert.equal(result.error, '解析不到余额字段，检查取值路径')
-  assert.equal(result.rawPreview, JSON.stringify(payload))
-})
-
-test('preview 时余额不是数字仍回显原始 JSON', async () => {
-  const payload = { data: { balance: 'abc' } }
-  const impl = recordingFetch(() => responseOf(200, payload))
-  const runner = createRunner({ fetchImpl: impl })
-  const result = await runner.queryProvider(makeProvider(), { preview: true })
-  assert.equal(result.ok, false)
-  assert.equal(result.error, '余额不是数字')
-  assert.equal(result.rawPreview, JSON.stringify(payload))
-})
-
-test('preview 时余额路径命中 null 也回显原始 JSON', async () => {
-  const payload = { data: { balance: null } }
-  const impl = recordingFetch(() => responseOf(200, payload))
-  const runner = createRunner({ fetchImpl: impl })
-  const result = await runner.queryProvider(makeProvider(), { preview: true })
-  assert.equal(result.ok, false)
-  assert.equal(result.error, '余额不是数字')
-  assert.equal(result.rawPreview, JSON.stringify(payload))
-})
-
-test('HTTP 失败时 preview 为 null', async () => {
-  const impl = recordingFetch(() => responseOf(500, { data: { balance: 1 } }))
-  const runner = createRunner({ fetchImpl: impl })
-  const result = await runner.queryProvider(makeProvider(), { preview: true })
-  assert.equal(result.ok, false)
-  assert.match(result.error, /对方服务出错/)
-  assert.equal(result.rawPreview, null)
-})
-
-test('非 JSON 响应时 preview 为 null', async () => {
-  const impl = recordingFetch(() => responseOf(200, '<html>oops</html>'))
-  const runner = createRunner({ fetchImpl: impl })
-  const result = await runner.queryProvider(makeProvider(), { preview: true })
-  assert.equal(result.error, '返回的不是 JSON')
-  assert.equal(result.rawPreview, null)
-})
-
-test('preview=false 时余额解析失败不会漏出 rawPreview', async () => {
-  const impl = recordingFetch(() => responseOf(200, { data: {} }))
-  const runner = createRunner({ fetchImpl: impl })
-  const result = await runner.queryProvider(makeProvider())
-  assert.equal(result.ok, false)
-  assert.equal(result.rawPreview, null)
-})
-
 // ---------- queryAll ----------
 
 test('queryAll 按传入顺序返回并隔离单家失败', async () => {
@@ -662,13 +580,6 @@ test('queryAll 收到已取消的 signal 时全部返回已取消且不发请求
     assert.equal(result.error, '已取消')
   }
   assert.equal(impl.calls.length, 0)
-})
-
-test('queryAll 透传 preview 与 timeoutMs', async () => {
-  const impl = recordingFetch(() => responseOf(200, { data: { balance: 1 } }))
-  const runner = createRunner({ fetchImpl: impl })
-  const results = await runner.queryAll([makeProvider()], { preview: true })
-  assert.equal(typeof results[0].rawPreview, 'string')
 })
 
 // ---------- v1.1 用量 ----------
@@ -994,18 +905,6 @@ test('用量字段最多取 4 项', async () => {
   }))
   assert.equal(result.usage.length, 4)
   assert.deepEqual(result.usage.map((item) => item.label), ['a', 'b', 'c', 'd'])
-})
-
-test('preview 与 usage 共存：rawPreview 只含余额响应', async () => {
-  const balancePayload = { data: { balance: 12 } }
-  const impl = balanceAndUsageFetch(responseOf(200, { data: [{ count: 2 }] }))
-  const runner = createRunner({ fetchImpl: impl })
-  const result = await runner.queryProvider(usageProvider({
-    usageArrayPath: 'data',
-    usageFields: [{ label: '请求', path: 'count' }],
-  }), { preview: true })
-  assert.equal(result.rawPreview, JSON.stringify(balancePayload))
-  assert.deepEqual(result.usage, [{ label: '请求', value: 2 }])
 })
 
 test('queryAll 的每个 Result 都带 usage 数组', async () => {
@@ -1551,19 +1450,6 @@ test('同响应用量：HTTP 失败时 usage 为空且只发一次请求', async
   assert.equal(impl.calls.length, 1)
 })
 
-test('同响应用量 + preview：rawPreview 是余额响应、usage 照常解析', async () => {
-  const payload = { data: { balance: 2, usage_daily: 1.5 } }
-  const impl = recordingFetch(() => responseOf(200, payload))
-  const runner = createRunner({ fetchImpl: impl })
-  const result = await runner.queryProvider(makeProvider({
-    usageUrl: '',
-    usageArrayPath: '',
-    usageFields: [{ label: '今日花费', path: 'data.usage_daily' }],
-  }), { preview: true })
-  assert.equal(result.rawPreview, JSON.stringify(payload))
-  assert.deepEqual(result.usage, [{ label: '今日花费', value: 1.5 }])
-})
-
 test('只用量的服务：balancePath 为空时 ok=true、balance=null、usage 正常', async () => {
   const impl = recordingFetch(() => responseOf(200, {
     data: [
@@ -2038,4 +1924,113 @@ test('commandcode：月度剩余额度 + 5h/周剩余金额', async () => {
   ])
   assert.equal(result.details[3].kind, 'date')
   assert.equal(result.details[4].kind, 'date')
+})
+
+// ---------- v0.6.1 审计修复 ----------
+
+function streamResponse (status, chunks, { location = '', headers = {} } = {}) {
+  let canceled = false
+  const body = new ReadableStream({
+    start (controller) {
+      for (const chunk of chunks) controller.enqueue(new TextEncoder().encode(chunk))
+      controller.close()
+    },
+    cancel () { canceled = true },
+  })
+  const map = new Headers(headers)
+  if (location !== '') map.set('location', location)
+  return {
+    status,
+    ok: status >= 200 && status < 300,
+    body,
+    headers: map,
+    text: async () => { throw new Error('body must not be read with text()') },
+    get canceled () { return canceled },
+  }
+}
+
+test('响应体超限：流式读取到 256 KiB 就取消，不把整个 body 读进内存', async () => {
+  let canceled = false
+  let delivered = 0
+  const body = new ReadableStream({
+    pull (controller) {
+      if (delivered >= 1024 * 1024) {
+        controller.close()
+        return
+      }
+      controller.enqueue(new Uint8Array(64 * 1024))
+      delivered += 64 * 1024
+    },
+    cancel () { canceled = true },
+  })
+  const response = { status: 200, ok: true, body, headers: new Headers(), text: async () => { throw new Error('no text') } }
+  const impl = async () => response
+  const runner = createRunner({ fetchImpl: impl })
+  const result = await runner.queryProvider(makeProvider())
+  assert.equal(result.ok, false)
+  assert.equal(result.error, '响应太大')
+  assert.equal(canceled, true)
+  assert.ok(delivered < 1024 * 1024, `只读到超限为止，实际 ${delivered}`)
+})
+
+test('没有流式 body 的宿主：text() 超限也报响应太大，而不是返回的不是 JSON', async () => {
+  const impl = async () => ({ status: 200, ok: true, text: async () => JSON.stringify({ data: { balance: 1, note: 'x'.repeat(300 * 1024) } }) })
+  const runner = createRunner({ fetchImpl: impl })
+  const result = await runner.queryProvider(makeProvider())
+  assert.equal(result.ok, false)
+  assert.equal(result.error, '响应太大')
+})
+
+test('3xx 跳转不读 body：走 cancel 并继续同源跳转', async () => {
+  const redirect = streamResponse(302, ['x'.repeat(50 * 1024)], { location: '/v2/balance' })
+  const impl = recordingFetch((url) => (url.endsWith('/v2/balance') ? responseOf(200, { data: { balance: 7 } }) : redirect))
+  const runner = createRunner({ fetchImpl: impl })
+  const result = await runner.queryProvider(makeProvider())
+  assert.equal(result.ok, true)
+  assert.equal(result.balance, 7)
+  assert.equal(redirect.canceled, true)
+})
+
+test('extraFields 支持 text/date（不再被数值表达式丢掉）', async () => {
+  const impl = recordingFetch((url) => {
+    if (url.includes('/extra')) {
+      return responseOf(200, { data: { end: '2026-11-24T03:00:00Z', plan: 'Pro', quota: 600000 } })
+    }
+    return responseOf(200, { data: { balance: 1 } })
+  })
+  const runner = createRunner({ fetchImpl: impl })
+  const result = await runner.queryProvider(makeProvider({
+    extraUrl: 'https://api.example.com/extra',
+    extraFields: [
+      { label: '到期', path: 'data.end', kind: 'date' },
+      { label: '套餐', path: 'data.plan', kind: 'text' },
+      { label: '额度', path: 'data.quota' },
+    ],
+  }))
+  assert.deepEqual(result.extra, [
+    { label: '到期', value: '2026-11-24T03:00:00Z', kind: 'date' },
+    { label: '套餐', value: 'Pro', kind: 'text' },
+    { label: '额度', value: 600000, kind: 'money' },
+  ])
+})
+
+test('登录 token 缓存按密码隔离：改密码后会重新登录', async () => {
+  let logins = 0
+  const impl = recordingFetch((url) => {
+    if (url === LOGIN_URL) {
+      logins += 1
+      return responseOf(200, { data: { token: `tok-${logins}` } })
+    }
+    return responseOf(200, { data: { balance: 1 } })
+  })
+  const runner = createRunner({ fetchImpl: impl })
+  const base = makeProvider({ authType: 'login', loginUrl: LOGIN_URL, username: 'alice' })
+  await runner.queryProvider({ ...base, secret: 'pw-1' })
+  await runner.queryProvider({ ...base, secret: 'pw-1' })
+  assert.equal(logins, 1, '同一密码复用 token')
+  await runner.queryProvider({ ...base, secret: 'pw-2' })
+  assert.equal(logins, 2, '改密码必须重新登录')
+  runner.clearTokenCache()
+  await runner.queryProvider({ ...base, secret: 'pw-2' })
+  assert.equal(logins, 3, 'clearTokenCache 后重新登录')
 })

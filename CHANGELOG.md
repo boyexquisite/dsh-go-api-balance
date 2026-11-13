@@ -1,5 +1,27 @@
 # Changelog / 更新日志
 
+## 0.7.0
+
+### 中文
+
+- **安全修复（审计）**：响应体改为 256 KiB 流式上限（gzip 炸弹不再能撑爆宿主内存），3xx 跳转不再读 body；单家服务的所有请求共享一个总超时；坏配置备份 `.bad-*` 立刻收紧到 `0600`、失败分支也收紧目录。
+- **换站/换平台不再复用旧密钥**：编辑时改了站点域名、登录/用量/附加地址或平台类型，密钥留空会被拒绝并要求重填，避免把 A 家 key 发给 B 家；登录 token 缓存按密码隔离，保存/删除/销毁时清空。
+- **修复后台刷新与保存的竞态**：刷新在途时编辑保存，旧响应会被丢弃，并按新配置补刷一次；只有停用服务时保存启用服务也不会再卡住自动刷新。
+- **删除确认校验来源**：多面板/旧视图的确认事件不会删错服务。
+- 修复：合并模板切换平台后默认名称/符号不跟着变；停用服务仍显示旧余额/旧错误；自定义服务编辑保存丢明细 `kind`（date/count）和 `balanceOptional`；自定义附加信息 `text/date` 类型字段取不到值；`[]` 通配路径的访问次数加了预算（防 CPU 爆炸）；`*.localhost`/`0.0.0.0` 不再当回环放行 http；极大金额不再输出 `undefined`、`-0.001` 不再显示 `-0.00`；日期明细支持数字字符串时间戳；编辑预填超长旧值按上限截断；24 家服务时 v2 patch 不再携带 v1 `rows`，避免超 16 KiB。
+- **清理死代码**：移除没有入口的输入框上方状态条和「测试」动作/脱敏预览（连带相关文案），面板数据不再下发无用字段。
+- 说明：表单 4 KiB 提交上限对全中文长字段仍可能超（App 端硬限制），README 已注明；常见中英混用有测试兜底。
+
+### English
+
+- **Security fixes**: responses are read with a 256 KiB streaming cap (gzip bombs can no longer exhaust host memory), redirect bodies are cancelled instead of read, and all requests for one service share a total timeout; corrupt-config backups (`.bad-*`) are immediately tightened to `0600` and failure paths also harden the directory.
+- **No secret reuse across sites/platforms**: if editing changes the site host, login/usage/extra URLs or platform, an empty key is rejected and must be re-entered; login token cache is keyed by password and cleared on save/delete/dispose.
+- **Refresh/save race fixed**: an in-flight refresh is discarded when the config changes during it and a fresh refresh is queued; saving an enabled service after only disabled ones no longer wedges auto-refresh.
+- **Delete confirmation is source-checked**: a stale panel's confirm can no longer delete a different service.
+- Also fixed: default name/symbol when switching merged platforms; disabled cards showing old balance/errors; custom-service edits losing detail `kind` and `balanceOptional`; `text/date` extra fields being dropped; a visit budget for `[]` wildcard paths; `*.localhost`/`0.0.0.0` no longer treated as loopback; `undefined` in huge amounts and `-0.00`; numeric-string timestamps in date details; over-long edit prefill is clipped; v2 patches omit v1 `rows` so 24 services stay under 16 KiB.
+- **Dead code removed**: the never-reachable composer strip and the "test" action/redacted preview (plus their strings).
+- Note: the app's 4 KiB form-submit cap can still be exceeded by fully Chinese form content (app-side hard limit); README documents it and a mixed-language budget test guards common usage.
+
 ## 0.6.0
 
 ### 中文

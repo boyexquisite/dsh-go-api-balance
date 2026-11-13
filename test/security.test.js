@@ -81,3 +81,17 @@ test('安全基线：文档里有安全说明与可验证的数据流向', async
   const pkg = await readJson('package.json')
   assert.match(pkg.repository.url, /^https:\/\//)
 })
+
+test('https 强制的回环白名单只认精确本机地址', async () => {
+  const { isSafeUrl, isLoopbackHost } = await import('../lib/url.js')
+  assert.equal(isSafeUrl('https://api.example.com/x'), true)
+  assert.equal(isSafeUrl('http://localhost:8080/x'), true)
+  assert.equal(isSafeUrl('http://127.0.0.1:8080/x'), true)
+  assert.equal(isSafeUrl('http://[::1]:8080/x'), true)
+  // 不能把 *.localhost / 0.0.0.0 当成本机（是否真连本机取决于系统 resolver）
+  assert.equal(isLoopbackHost('foo.localhost'), false)
+  assert.equal(isSafeUrl('http://foo.localhost/x'), false)
+  assert.equal(isLoopbackHost('0.0.0.0'), false)
+  assert.equal(isSafeUrl('http://0.0.0.0/x'), false)
+  assert.equal(isSafeUrl('http://localhost.evil.com/x'), false)
+})

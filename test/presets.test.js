@@ -314,9 +314,9 @@ test('newapi 预设订阅走独立接口 /api/subscription/self（v2.0 修正）
       label: '订阅剩余',
       path: 'data.subscriptions[].subscription.amount_total - data.subscriptions[].subscription.amount_used',
     },
+    { label: '订阅到期', path: 'data.subscriptions[0].subscription.end_time', kind: 'date' },
     { label: '订阅总量', path: 'data.subscriptions[].subscription.amount_total' },
     { label: '订阅已用', path: 'data.subscriptions[].subscription.amount_used' },
-    { label: '订阅到期', path: 'data.subscriptions[0].subscription.end_time', kind: 'date' },
   ])
 })
 

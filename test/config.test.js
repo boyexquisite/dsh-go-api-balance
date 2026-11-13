@@ -793,3 +793,23 @@ test('loadConfig / loadResults 读到宽权限文件会自动收紧为 0600（�
   await loadResults(resultsPath(home))
   assert.equal((await fs.stat(resultsPath(home))).mode & 0o777, 0o600)
 })
+
+test('坏配置备份：rename 后收紧到 0600，目录收紧到 0700', async (t) => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-balance-bad-'))
+  t.after(async () => { await fs.rm(home, { recursive: true, force: true }) })
+  const dir = configDir(home)
+  await fs.mkdir(dir, { recursive: true, mode: 0o755 })
+  await fs.chmod(dir, 0o755)
+  const bad = '{"v":1,"providers":[{"id":"p_x","secret":"sk-BACKUP-LEAK"'
+  await fs.writeFile(configPath(home), bad, { mode: 0o644 })
+  await fs.chmod(configPath(home), 0o644)
+  const loaded = await loadConfig(configPath(home))
+  assert.equal(loaded.providers.length, 0)
+  const files = await fs.readdir(dir)
+  const backup = files.find((name) => name.includes('.bad-'))
+  assert.ok(backup, '坏配置应被备份')
+  const stat = await fs.stat(path.join(dir, backup))
+  assert.equal(stat.mode & 0o777, 0o600, '备份文件不能留宽权限')
+  assert.equal((await fs.stat(dir)).mode & 0o777, 0o700, '目录要收紧')
+  assert.ok((await fs.readFile(path.join(dir, backup), 'utf8')).includes('sk-BACKUP-LEAK'), '备份内容留给用户排查')
+})

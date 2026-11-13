@@ -219,3 +219,12 @@ test('evalExpression 任一操作数取不到就给 null', () => {
   assert.equal(evalExpression(null, 'data.a'), null)
   assert.equal(evalExpression({ data: { a: 1 } }, 'data.a * 2'), null)
 })
+
+test('sumByPath：连续 [] 通配的访问次数有预算，超了返回 null 不卡死', () => {
+  // 每层 2 个元素、深 22 层：逐层展开是 2^22 ≈ 420 万次访问，预算会提前截断。
+  let node = { v: 1 }
+  for (let depth = 0; depth < 22; depth++) node = { left: node, right: node }
+  const started = Date.now()
+  assert.equal(sumByPath({ a: node }, 'a' + '[]'.repeat(22)), null)
+  assert.ok(Date.now() - started < 2000, '不应耗时过久')
+})

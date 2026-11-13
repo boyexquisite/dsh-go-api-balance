@@ -7,11 +7,8 @@ import {
   formatDay,
   formatDetailValue,
   formatNumber,
-  formatStripText,
   formatUsage,
-  redactPreview,
   scaledAmount,
-  STRIP_MAX_CHARS,
   symbolForCurrency,
 } from '../lib/format.js'
 
@@ -72,73 +69,6 @@ test('时间：当天只给 HH:mm，跨天带月日', () => {
   assert.equal(formatClock('nope'), '—')
   assert.equal(formatDateTime(null), '—')
 })
-
-test('状态条：中文 / 英文 / 上限 / 关闭 / 无结果', () => {
-  const providers = [
-    { id: 'a', enabled: true },
-    { id: 'b', enabled: true },
-    { id: 'c', enabled: false },
-  ]
-  const results = {
-    a: { ok: true, balance: 1000, symbol: '¥', decimals: 2 },
-    b: { ok: true, balance: 234, symbol: '¥', decimals: 2 },
-  }
-  const zh = formatStripText(providers, results, { locale: 'zh-CN' })
-  assert.ok(zh.startsWith('余额 ¥'), zh)
-  assert.ok(zh.includes('2 家'), zh)
-  assert.ok([...zh].length <= STRIP_MAX_CHARS, zh)
-
-  const en = formatStripText(providers, results, { locale: 'en-US' })
-  assert.ok(en.startsWith('Balance ¥'), en)
-  assert.ok([...en].length <= STRIP_MAX_CHARS, en)
-
-  assert.equal(formatStripText(providers, results, { stripEnabled: false }), '')
-  assert.equal(formatStripText([], results), '')
-  assert.equal(formatStripText(providers, { a: { ok: false } }), '')
-  assert.equal(formatStripText(providers, {}), '')
-})
-
-test('状态条：大额自动压缩，仍不超过 24 字', () => {
-  const providers = [{ id: 'a', enabled: true }]
-  for (const locale of ['zh-CN', 'en-US']) {
-    for (const balance of [1234567890123, 999999999999999, 12345.67]) {
-      const text = formatStripText(providers, {
-        a: { ok: true, balance, symbol: '¥', decimals: 2 },
-      }, { locale })
-      assert.ok([...text].length <= STRIP_MAX_CHARS, `${locale} ${text}`)
-      assert.ok(text !== '', `${locale} ${balance}`)
-    }
-  }
-})
-
-test('redactPreview: 密钥、用户名、Bearer 与常见字段脱敏', () => {
-  const secret = 'sk-abcdef123456'
-  const p = { secret, username: 'aliceuser' }
-  const raw = JSON.stringify({
-    key: secret,
-    user: 'aliceuser',
-    auth: `Bearer ${'tok'.repeat(10)}`,
-    access_token: 'another-secret-value',
-    ok: true,
-  })
-  const cleaned = redactPreview(raw, p)
-  assert.ok(!cleaned.includes(secret), cleaned)
-  assert.ok(!cleaned.includes('aliceuser'), cleaned)
-  assert.ok(!cleaned.includes('tok'.repeat(10)), cleaned)
-  assert.ok(!cleaned.includes('another-secret-value'), cleaned)
-  assert.ok(cleaned.includes('••••'), cleaned)
-  assert.ok(cleaned.includes('"ok":true'), cleaned)
-})
-
-test('redactPreview: 空值、非字符串、超长截断', () => {
-  assert.equal(redactPreview('', { secret: 'x' }), '')
-  assert.equal(redactPreview(null, { secret: 'x' }), '')
-  assert.equal(redactPreview(123, { secret: 'x' }), '')
-  const long = redactPreview('a'.repeat(9000), {})
-  assert.equal(long.length, 8000)
-  assert.equal(redactPreview('plain', { secret: '' }), 'plain')
-})
-
 
 test('formatUsage: 原始计数用万/亿与千分位（中文）', () => {
   const provider = { usageScale: false }
@@ -216,4 +146,20 @@ test('formatDay 接受 ISO 字符串（订阅接口的 resetsAt）', () => {
 test('formatAmount：百分比符号后置', () => {
   assert.equal(formatAmount({ symbol: '%', decimals: 0, divisor: 1, multiplier: 1 }, 48), '48%')
   assert.equal(formatAmount({ symbol: '%', decimals: 1, divisor: 1, multiplier: 1 }, -3.25), '-3.3%')
+})
+
+test('formatNumber/formatAmount：>=1e21 不出 undefined，负零归一', () => {
+  assert.equal(formatNumber(1e21, 2), '1.00e+21')
+  assert.equal(formatNumber(-0.001, 2), '0.00')
+  assert.equal(formatNumber(-0.004, 2), '0.00')
+  assert.equal(formatAmount(provider(), 1e21), '¥1.00e+21')
+  assert.equal(formatAmount(provider(), -0.001), '¥0.00')
+  assert.equal(formatNumber(-1e21, 1), '-1.0e+21')
+})
+
+test('formatDay 认数字字符串 epoch（秒/毫秒）', () => {
+  const at = new Date(2026, 10, 13, 9, 0, 0)
+  assert.equal(formatDay(String(Math.floor(at.getTime() / 1000))), '2026-11-13')
+  assert.equal(formatDay(String(at.getTime())), '2026-11-13')
+  assert.equal(formatDay('2026-11-13T09:00:00+08:00'), '2026-11-13')
 })

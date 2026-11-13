@@ -674,3 +674,38 @@ export function presetOptions() // → [{ label, value }] 给 UI 选项（含 cu
 - `upgradeProvider` 增加迁移：老配置按预设补齐缺失的明细；OpenAI/Claude 花费在没配附加请求时自动补 token 用量请求。只补缺、不覆盖已有项。
 - 全部数据仍来自同一 API key / 令牌，不引入 Cookie、网页登录态或新的凭证类型。
 - 测试：330 项全绿，check 0 error（含 OpenAI/Claude 附加 token 请求、老配置迁移、卡片明细行）。
+
+## 27. v0.7.0：审计修复批次
+
+> 2026-11-13 两轮只读审计（安全 / 正确性）后的修复，用户要求全部改掉。
+
+### 27.1 安全
+
+- 响应体：`readBodyLimited` 流式读取，超过 256 KiB 立刻 `reader.cancel()` 并报「响应太大」；`Content-Length` 仅用于快速拒绝；3xx 跳转 body 用 `response.body.cancel()` 丢弃，不再 `.text()`；没有流式 body 的宿主退回 `text()` 并按字节数兜底。
+- 单家服务多次请求共享总截止时间（`deadline` + `remaining()`），不再每段各拖满 timeout。
+- 坏配置备份：rename 后 `chmod 0600` + 目录 `0700`；`loadResults` 坏 JSON 分支也 `hardenPermissions`。
+- `validateProvider(draft, { existing, allowSecretReuse })`：`onSave` 比较新旧 `url/loginUrl/usageUrl/extraUrl` 的 origin 集合，目标变了且密钥留空 → 拒绝保存并提示「换了站点或平台，请重新填密钥」，并把 `secretSet` 重置为 false。
+- 登录 token 缓存 key 加入 secret；保存/删除/`dispose` 调 `runner.clearTokenCache()`。
+- 回环白名单只保留 `localhost` / `127.0.0.1` / `::1`。
+- 表达式 `[]` 通配的访问预算 `MAX_WILDCARD_VISITS = 100000`，超了返回 null（报解析失败，不卡死）。
+
+### 27.2 正确性
+
+- `startBackgroundRefresh` 改为 `refreshInFlight` + `refreshAgain` + `configRevision`：配置在途变化时丢弃旧结果，收尾后按新配置再刷一次；零启用服务时直接返回 null（不再把状态卡在已完成的 promise 上）。保存后清掉该 provider 的旧 result。
+- 删除确认：`event.value.id` 必须等于 `state.confirmDelete.id`，否则清确认态、不删。
+- 禁用服务：卡片 balance `—`、error 空、usage 槽位不显示。
+- v1 列表行去掉未注册的 `select` action。
+- 自定义服务编辑保存：按 label 找回原 `detailPaths/extraFields` 的 `kind`，并保留 `balanceOptional`。
+- `pickExtra`：`kind=text/date` 用普通路径取值，不再被数值表达式丢掉。
+- 合并模板：`state.presetOrigin` 记录入口模板；切换平台后若名称/符号仍是入口默认值，保存时改用目标模板默认值。
+- 合并表单平台下拉加 `onChange: 'preset-change'`，同步 `state.form.preset`（防中间 patch 回跳）。
+- `providerForm` 预填值按 `FORM_LIMITS` 截断。
+- 订阅 extraFields 顺序改为「剩余、到期、总量、已用」，卡片能显示到期；旧配置在 `upgradeProvider` 里按 label 重排。
+- `panelData`：`state.v2 === true`（App 支持 form）时不再生成 v1 `rows`，24 家 patch 保持 <16 KiB。
+- 格式化：`>=1e21` 用 `toExponential` 防 `undefined`；四舍五入为 0 时不带负号；`formatDay` 支持数字字符串 epoch。
+
+### 27.3 死代码清理
+
+- 删除 composer.strip 贡献与注册（状态条恒为空）、`stripData`/`formatStripText`/`STRIP_MAX_CHARS`。
+- 删除 `test` 动作、`state.test`、rawPreview 预览链路、`redactPreview` 及相关文案。
+- 已知限制：App 表单 4 KiB 硬上限对「整份表单都用中文填满」仍不成立；README/spec 已注明，并有常见中英混用预算测试。

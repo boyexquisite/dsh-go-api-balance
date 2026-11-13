@@ -41,6 +41,8 @@ dsh plugin --profile web add ./dsh-go-api-balance
    - **自定义**：常用页签填地址/鉴权/密钥/余额路径，其余路径收在「高级」页签。
 3. 保存后自动刷新，不用再点「刷新」；以后打开面板也会自动更新。
 
+> App 单次表单提交有 **4 KiB** 上限：接口地址、密钥、字段路径请用 ASCII；中文名称和明细标签别写太长（长文本填满可能被 App 拦下）。
+
 字段路径写法：`data.quota`、`balance_infos[0].total_balance`、`a[1].b`；简单算式也可以：`balance_infos[0].cash_balance + balance_infos[0].gift_balance`、`data.subscriptions[].subscription.amount_total - data.subscriptions[].subscription.amount_used`（订阅剩余）。
 
 ## 支持范围
