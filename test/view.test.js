@@ -791,37 +791,39 @@ test('布局顺序：空状态/卡片 → 测试结果 → 向导/表单 → 底
   assert.deepEqual(bottomActions(formEmpty).items.map((item) => item.action), ['refresh', 'add'])
 })
 
-test('卡片标题行：list 单行 title=服务名、action card-menu（右侧只有系统箭头）', () => {
+test('卡片标题：名称是加粗浅紫文本，状态行 list 带 card-menu（右侧系统箭头）', () => {
   const view = panelView(stateWithProvider(), FULL_CAPS)
   const card = view.children[0]
   assert.equal(nodesOfType(card, 'chips').length, 0, '不再用 chips')
   assert.equal(nodesOfType(card, 'actions').length, 0)
   assert.equal(nodesOfType(card, 'grid').length, 0)
-  const titleList = nodesOfType(card, 'list')[0]
-  assert.ok(titleList, '缺少标题 list')
-  assert.equal(titleList.items.length, 1)
-  assert.deepEqual(titleList.items[0], {
-    title: 'DeepSeek',
+  const nameText = nodesOfType(card, 'text')[0]
+  assert.equal(nameText.text, 'DeepSeek')
+  assert.deepEqual(nameText.style, { size: 'subtitle', weight: 'bold', color: '#8B5CF6' })
+  const statusList = nodesOfType(card, 'list')[0]
+  assert.ok(statusList, '缺少状态行 list')
+  assert.equal(statusList.items.length, 1)
+  assert.deepEqual(statusList.items[0], {
+    title: { $: 'data.cards[0].status' },
     action: { id: 'card-menu', args: { id: 'p_abc12345' } },
   })
   assert.equal(collectInputs(view).length, 0, '卡片不再产生 input')
 
-  // 两家卡片 title/args 各自对齐
+  // 两家卡片名称/args 各自对齐
   const two = stateWithProvider()
   two.config.providers.push(makeProvider({ id: 'p_def67890', name: '第二家' }))
-  const twoView = panelView(two, FULL_CAPS)
-  const titles = twoView.children.filter((child) => child.type === 'stack').map((child) => nodesOfType(child, 'list')[0].items[0])
-  assert.deepEqual(titles.map((item) => item.title), ['DeepSeek', '第二家'])
-  assert.deepEqual(titles.map((item) => item.action.args.id), ['p_abc12345', 'p_def67890'])
+  const twoCards = panelView(two, FULL_CAPS).children.filter((child) => child.type === 'stack')
+  assert.deepEqual(twoCards.map((child) => nodesOfType(child, 'text')[0].text), ['DeepSeek', '第二家'])
+  assert.deepEqual(twoCards.map((child) => nodesOfType(child, 'list')[0].items[0].action.args.id), ['p_abc12345', 'p_def67890'])
 
-  // 表单打开时标题行不可点
+  // 表单打开时状态行不可点
   const form = stateWithProvider({ formOpen: true })
   form.form = providerForm(form.config.providers[0])
   const formView = panelView(form, FULL_CAPS)
   const cardInForm = formView.children.find((child) => child.type === 'stack')
-  const titleInForm = nodesOfType(cardInForm, 'list')[0].items[0]
-  assert.equal(Object.hasOwn(titleInForm, 'action'), false)
-  assert.equal(titleInForm.trailing, undefined)
+  const statusInForm = nodesOfType(cardInForm, 'list')[0].items[0]
+  assert.equal(Object.hasOwn(statusInForm, 'action'), false)
+  assert.equal(statusInForm.title.$, 'data.cards[0].status')
 })
 
 test('卡片菜单：明细信息行在上，[编辑][删除 tone bad] 在下', () => {
@@ -870,13 +872,13 @@ test('卡片内容：名称/余额/用量/状态；失败 callout；不再有 ke
   assert.ok(!json.includes('"keyValue"'), '卡片里不再有 keyValue 详情')
   assert.ok(!json.includes('服务详情'))
   const card = view.children[0]
-  const titleRow = nodesOfType(card, 'list')[0].items[0]
-  assert.equal(titleRow.title, 'DeepSeek')
   const texts = nodesOfType(card, 'text')
-  assert.equal(texts.length, 2, '余额 / 状态')
-  assert.equal(texts[0].text.$, 'data.cards[0].balance')
-  assert.equal(texts[1].text.$, 'data.cards[0].status')
-  assert.equal(texts[0].style.weight, 'bold')
+  assert.equal(texts.length, 2, '名称 / 余额（状态在 list 行里）')
+  assert.equal(texts[0].text, 'DeepSeek')
+  assert.equal(texts[1].text.$, 'data.cards[0].balance')
+  assert.equal(texts[1].style.weight, 'bold')
+  const statusRow = nodesOfType(card, 'list')[0].items[0]
+  assert.equal(statusRow.title.$, 'data.cards[0].status')
   const metrics = nodesOfType(card, 'metric')
   assert.equal(metrics.length, 2, '两个用量 metric 并排')
   assert.deepEqual(metrics.map((metric) => metric.label.$), [
@@ -1844,8 +1846,8 @@ test('卡片不再产生 input；多服务仍按节点预算截断并给提示',
   assert.ok(stats.nodes <= 120, `节点 ${stats.nodes}`)
   const cardCount = view.children.filter((child) => child.type === 'stack' && child.style && child.style.card === 'surface').length
   assert.ok(cardCount > 0 && cardCount < 24)
-  const titles = view.children.filter((child) => child.type === 'stack').map((child) => nodesOfType(child, 'list')[0].items[0])
-  assert.deepEqual(titles.map((item) => item.title), state.config.providers.slice(0, cardCount).map((provider) => provider.name))
+  const names = view.children.filter((child) => child.type === 'stack').map((child) => nodesOfType(child, 'text')[0].text)
+  assert.deepEqual(names, state.config.providers.slice(0, cardCount).map((provider) => provider.name))
   const hint = view.children.find((child) => child.type === 'text' && typeof child.text === 'string' && child.text.includes('未显示'))
   assert.ok(hint)
   assert.ok(hint.text.includes(String(24 - cardCount)))

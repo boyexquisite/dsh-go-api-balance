@@ -1,5 +1,17 @@
 # Changelog / 更新日志
 
+## 0.4.3
+
+### 中文
+
+- 卡片美化：服务商名称改为**加粗紫色**（浅色主题自动校正为亮紫 `#7E53DF`，深色主题 `#AB88F8`），一眼能分清哪家。
+- 因为 App 的列表行标题不能上色，名称改成独立文本节点；「编辑 / 删除」菜单的入口从名称行挪到**状态行**（点「成功 · 12:06 ›」这一行展开，箭头位置不变在右侧）；表单打开时状态行不可点。
+
+### English
+
+- Card polish: provider names are now **bold purple** (the app corrects to `#7E53DF` in light theme and `#AB88F8` in dark theme), so each card is easier to tell apart.
+- List-row titles cannot be coloured, so the name became a standalone text node; the edit/delete menu now opens from the **status row** (`成功 · 12:06 ›`) instead of the name row, keeping the chevron on the right. The status row is not tappable while the form is open.
+
 ## 0.4.2
 
 ### 中文

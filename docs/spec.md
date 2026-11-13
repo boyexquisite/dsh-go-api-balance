@@ -640,3 +640,12 @@ export function presetOptions() // → [{ label, value }] 给 UI 选项（含 cu
 - `add` 动作改成开关：`pickTemplate=true` 时再点一次「添加服务」＝收起（统一走 `closeAddFlow()`）。
 - 面板最后一个 data 订阅者离开（面板关闭）后 `pickTemplate` 自动置 false；重新打开直接看卡片。已打开的表单草稿不清。
 - 单测新增：类型列表带取消出口、`add` 二次点击收起、面板关闭收起（多订阅时最后关才收）；328 项全绿，check 0 error。
+
+## 24. v0.4.3：卡片名称加粗浅紫，菜单触发挪到状态行
+
+> 哥哥 2026-11-13 真机反馈：每家服务商名称没特色，想要加粗 + 浅的亮紫色。
+
+- App 的 `list` 行标题不能上色（只有 title/subtitle/trailing/icon/tone），所以名称改成独立 `text` 节点：`style={size:'subtitle',weight:'bold',color:'#8B5CF6'}`；App 按主题校正对比度（浅色约 `#7E53DF`、深色约 `#AB88F8`）。
+- 菜单触发从标题行挪到状态行：状态行改为 `list` 单行（`title` 绑定 `data.cards<i>.status`，`action` 仍是 `card-menu`），右侧系统箭头保留；`formOpen===true` 时状态行不带 action、不可点。
+- 卡片顺序：名称 → 状态行 → 余额 → 用量 metric → 附加行 / 错误 callout → 菜单（打开时）。
+- 单测同步：名称文本与样式、状态行 action、表单态不可点、预算截断按名称取；328 项全绿，check 0 error。
