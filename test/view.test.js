@@ -398,9 +398,12 @@ test('panelView: v2 根节点、无 minApp、自定义表单两页签与必填�
   assert.ok(JSON.stringify(view).includes('{7d}'), '用量地址 placeholder 带 {7d} 说明')
 })
 
-test('panelView: 添加向导出十一种服务类型（list 行内 choose-template）', () => {
+test('panelView: 添加向导出十一种服务类型（list 行内 choose-template，取消可收起）', () => {
   const view = panelView(freshState({ pickTemplate: true }), FULL_CAPS)
-  assert.deepEqual(childrenTypes(view), ['emptyState', 'text', 'list', 'actions'])
+  assert.deepEqual(childrenTypes(view), ['emptyState', 'text', 'list', 'actions', 'actions'])
+  const cancelRow = view.children.filter((child) => child.type === 'actions')[0]
+  assert.deepEqual(cancelRow.items.map((item) => item.action), ['form-cancel'], '类型列表下要有取消出口')
+  assert.deepEqual(cancelRow.items.map((item) => item.label), [words('zh').cancel])
   const list = view.children.find((child) => child.type === 'list')
   assert.equal(list.items.length, 11)
   assert.deepEqual(list.items.map((item) => item.action), [
@@ -433,7 +436,7 @@ test('panelView: 添加向导出十一种服务类型（list 行内 choose-templ
   assert.ok(!JSON.stringify(view).includes('"form"'), '选类型阶段不出表单')
 
   const withProvider = stateWithProvider({ pickTemplate: true })
-  assert.deepEqual(childrenTypes(panelView(withProvider, FULL_CAPS)), ['stack', 'text', 'list', 'actions'])
+  assert.deepEqual(childrenTypes(panelView(withProvider, FULL_CAPS)), ['stack', 'text', 'list', 'actions', 'actions'])
 })
 
 test('panelView: 模板表单只显示关键字段（deepseek 2 项 / newapi autoUnit 显隐）', () => {
@@ -774,7 +777,7 @@ test('布局顺序：空状态/卡片 → 测试结果 → 向导/表单 → 底
   assert.deepEqual(childrenTypes(panelView(tested, FULL_CAPS)), ['stack', 'actions'], '测试结果块已移除')
 
   const picking = stateWithProvider({ pickTemplate: true })
-  assert.deepEqual(childrenTypes(panelView(picking, FULL_CAPS)), ['stack', 'text', 'list', 'actions'])
+  assert.deepEqual(childrenTypes(panelView(picking, FULL_CAPS)), ['stack', 'text', 'list', 'actions', 'actions'])
 
   const form = stateWithProvider({ formOpen: true })
   form.form = providerForm(form.config.providers[0])
@@ -1106,6 +1109,23 @@ test('apply: 面板 data 首帧同步 emit 缓存，strip 只读缓存不联网'
   stopStrip()
 })
 
+test('apply: 面板关闭后收起「添加服务」类型列表，重开不再挂一长列模板', async (t) => {
+  const home = await tempHome(t)
+  const { ctx, regs } = fakeHost()
+  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, { data: { balance: 1 } }) })
+  await store.ensureReady()
+
+  const cancelFirst = regs.panel.data({}, () => {}, FULL_CAPS)
+  const cancelSecond = regs.panel.data({}, () => {}, FULL_CAPS)
+  await store.actions.add({}, { locale: 'zh-CN' })
+  assert.equal(store.state.pickTemplate, true)
+  cancelFirst()
+  assert.equal(store.state.pickTemplate, true, '还有面板订阅时不收起')
+  cancelSecond()
+  assert.equal(store.state.pickTemplate, false, '最后一个面板关闭后收起类型列表')
+  assert.deepEqual(childrenTypes(regs.panel.view({}, FULL_CAPS)), ['emptyState', 'actions'])
+})
+
 test('apply: 缓存超过 60 秒且 refreshOnOpen 时后台刷新', async (t) => {
   const home = await tempHome(t)
   const provider = makeProvider()
@@ -1193,6 +1213,14 @@ test('actions: card-menu 切换菜单、card-edit 开表单、add/form-cancel �
   assert.equal(store.state.formOpen, false)
   assert.equal(effectTypes(effects).includes('refresh'), true)
 
+  // 再点一次「添加服务」＝收起类型列表，不会卡在只能选不能退的状态。
+  effects = await store.actions.add({}, { locale: 'zh-CN' })
+  assert.equal(store.state.pickTemplate, false, '再点添加收起类型列表')
+  assert.equal(store.state.formOpen, false)
+  assert.equal(effectTypes(effects).includes('refresh'), true)
+
+  effects = await store.actions.add({}, { locale: 'zh-CN' })
+  assert.equal(store.state.pickTemplate, true)
   effects = await store.actions['choose-template']({}, { locale: 'zh-CN', value: { preset: 'deepseek' } })
   assert.equal(store.state.pickTemplate, false)
   assert.equal(store.state.formOpen, true)

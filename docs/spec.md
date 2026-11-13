@@ -631,3 +631,12 @@ export function presetOptions() // → [{ label, value }] 给 UI 选项（含 cu
 ### 22.3 测试
 
 - 327 项 `node --test` 全绿；新增：数字常量表达式、订阅响应解析、日期明细、百分比格式化、两个预设的保存流程。
+
+## 23. v0.4.2：「添加服务」类型列表可收起
+
+> 哥哥 2026-11-13 真机反馈：点「添加服务」展开服务类型后没有关闭入口，面板关掉再进还挂着一长列模板。
+
+- 类型列表（`templatePickerView`）末尾新增一行 `actions`：`[{label:取消, icon:'clear', action:'form-cancel'}]`。
+- `add` 动作改成开关：`pickTemplate=true` 时再点一次「添加服务」＝收起（统一走 `closeAddFlow()`）。
+- 面板最后一个 data 订阅者离开（面板关闭）后 `pickTemplate` 自动置 false；重新打开直接看卡片。已打开的表单草稿不清。
+- 单测新增：类型列表带取消出口、`add` 二次点击收起、面板关闭收起（多订阅时最后关才收）；328 项全绿，check 0 error。

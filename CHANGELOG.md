@@ -1,5 +1,15 @@
 # Changelog / 更新日志
 
+## 0.4.2
+
+### 中文
+
+- 修「添加服务」只能展开、没法收起：类型列表下面新增「取消」；类型列表展开时再点一次「添加服务」也是收起；关闭面板后类型列表自动收起，重新打开直接看卡片，不再一直挂着一长列模板。
+
+### English
+
+- Fix the "Add service" flow getting stuck open: the template list now has a Cancel button, tapping Add service again collapses it, and closing the panel also collapses it so reopening shows the cards instead of a long template list.
+
 ## 0.4.1
 
 ### 中文
