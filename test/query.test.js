@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { createRunner, queryProvider, queryAll, resolveUsageUrl, resolveUnit } from '../lib/query.js'
+import { createRunner, resolveUsageUrl, resolveUnit } from '../lib/query.js'
 import { presetDraft } from '../lib/presets.js'
 import { validateProvider } from '../lib/config.js'
 
@@ -321,7 +321,7 @@ test('网络异常映射为连不上接口', async () => {
 })
 
 test('queryProvider 对空服务配置不抛异常', async () => {
-  const result = await queryProvider(null)
+  const result = await createRunner({ fetchImpl: async () => responseOf(200, {}) }).queryProvider(null)
   assert.equal(result.ok, false)
   assert.equal(result.error, '服务配置有误')
   const runner = createRunner({ fetchImpl: async () => responseOf(200, {}) })

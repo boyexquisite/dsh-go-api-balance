@@ -6,7 +6,6 @@ import {
   formatDateTime,
   formatDay,
   formatDetailValue,
-  formatNumber,
   formatUsage,
   scaledAmount,
   symbolForCurrency,
@@ -43,13 +42,6 @@ test('formatAmount: 按 divisor / multiplier 换算', () => {
   assert.equal(formatAmount(provider({ divisor: 0 }), 10), '¥10.00', '非法除数按 1')
   assert.equal(scaledAmount(provider({ divisor: 500000, multiplier: 2 }), 500000), 2)
   assert.equal(scaledAmount(provider(), 'abc'), null)
-})
-
-test('formatNumber: 独立数字格式化', () => {
-  assert.equal(formatNumber(1234.5, 2), '1,234.50')
-  assert.equal(formatNumber(1234.5, 0), '1,235')
-  assert.equal(formatNumber(999, 1), '999.0')
-  assert.equal(formatNumber(NaN), '—')
 })
 
 test('formatDetailValue: 数字换算、字符串原样、空值破折号', () => {
@@ -148,13 +140,11 @@ test('formatAmount：百分比符号后置', () => {
   assert.equal(formatAmount({ symbol: '%', decimals: 1, divisor: 1, multiplier: 1 }, -3.25), '-3.3%')
 })
 
-test('formatNumber/formatAmount：>=1e21 不出 undefined，负零归一', () => {
-  assert.equal(formatNumber(1e21, 2), '1.00e+21')
-  assert.equal(formatNumber(-0.001, 2), '0.00')
-  assert.equal(formatNumber(-0.004, 2), '0.00')
+test('formatAmount：>=1e21 不出 undefined，负零归一', () => {
   assert.equal(formatAmount(provider(), 1e21), '¥1.00e+21')
   assert.equal(formatAmount(provider(), -0.001), '¥0.00')
-  assert.equal(formatNumber(-1e21, 1), '-1.0e+21')
+  assert.equal(formatAmount(provider(), -0.004), '¥0.00')
+  assert.equal(formatAmount(provider(), -1e21), '-¥1.00e+21')
 })
 
 test('formatDay 认数字字符串 epoch（秒/毫秒）', () => {
