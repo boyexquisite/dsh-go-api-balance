@@ -356,3 +356,27 @@ export function presetOptions() // → [{ label, value }] 给 UI 选项（含 cu
 - 编辑已有 newapi 服务：`siteBaseOf(provider.url)` = 先剥 `/api/user/self` / `/api/data/self` 后缀，再 `normalizeSiteBase`（所以之前存错的 `https://sta1n.ai/v1/...` 打开编辑会显示 `https://sta1n.ai`，保存即修正）。
 - 表单 caption 文案改成提示：「填站点根地址，或 OpenAI 接入地址（含 /v1 也行，会自动去掉）」。
 - 单元测试：`normalizeSiteBase` 各种输入（带/不带尾斜杠、`/v1`、`/v1/`、完整后台地址、带反代子路径、非法值不抛），以及保存分支与编辑反推；测试宿主集成里用 `https://sta1n.ai/v1` 作为站点地址保存后，provider.url 必须是 `https://sta1n.ai/api/user/self`。
+
+## 14. v1.4：一家一块的卡片式面板（去掉总余额）
+
+> 哥哥 2026-11-13 真机反馈：不要列表 + 选中详情的形态，要「一家一块」；不要总余额，
+> 因为不同站货币不同、相加是错的（¥ + 🍪 混算）。状态条同理去掉总余额。
+
+### 14.1 面板结构（v2）
+
+- **删除总余额 metric**，删除列表 + 选中详情 + 选中操作的结构。
+- 根 stack 里：空状态 / 每家一张卡片（按 `state.config.providers` 顺序，视图构建时按数量生成静态卡片）→ 测试结果块（有 test 时）→ 添加服务向导（pickTemplate）/ 表单（formOpen）→ 最底部 actions [刷新, 添加服务]。
+- 每家卡片（stack，`style:{card:'surface',padding:'M',gap:'S'}`）：
+  - 名称（text，`size:'subtitle'`、`weight:'semibold'`）；
+  - 余额（text，`size:'title'`、`weight:'bold'`，绑定 `data.cards.<i>.balance`）；
+  - 用量行（text，`size:'caption'`、`color:'gray'`，`data.cards.<i>.usage`，可空）；
+  - 状态行（text，`size:'caption'`、`data.cards.<i>.status`，如「成功 · 09:55」）；
+  - 失败时：`callout tone:'bad'`（`data.cards.<i>.error`）；
+  - 底部小按钮一行（`grid columns:2`，每格一个单项 `actions`）：「编辑」「删除」；`preset='custom'` 的服务多一个「测试」（`grid columns:3`）。
+  - 删除确认：`state.confirmDelete` 指向这家时，卡片里改为 `callout`（「确认删除 X？」）+ `grid columns:2`：[确认删除] [取消]。
+- 卡片里的动作直接带静态 args（视图构建时知道 provider id）：`{id:'edit',args:{id}}`、`{id:'delete',args:{id}}`、`{id:'test',args:{id}}`；确认删除用 `{id:'delete',args:{id,confirm:true}}`，取消用 `{id:'delete-cancel',args:{id}}`。
+- 动作 handler 从 `event.value.id` 取 provider，不再依赖 selectedId；删除 `select` 动作与选中详情逻辑。
+- `data.cards.<i>` 由 panelData 生成（与 providers 同序）：`{ name, balance, usage, status, error }`；`usage` = 前 2 个 usage 项 `label text` 用 ` · ` 拼接（超过截断）；`status` = `成功/失败/未查询 · HH:mm`。
+- `strip`：不再显示总余额，`stripData` 返回 `{text:''}`（先隐藏；以后要再加别的口径）。
+- 视图预算、向导/模板表单、自定义常用/高级、自动刷新、绑定路径、v1 降级（仍是只读列表摘要，不搞卡片）保持。
+- tests 同步更新（卡片数量/绑定路径、无 metric、动作 args、确认删除、strip 空、预算）。

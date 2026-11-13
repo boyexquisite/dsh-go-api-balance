@@ -157,7 +157,6 @@ function findUndefined (value, trail = 'data') {
 
 function assertResolvable (view, data, label) {
   const bindings = collectBindings(view)
-  assert.ok(bindings.length > 0, `${label} 至少有一条绑定`)
   for (const binding of bindings) {
     assert.ok(binding.startsWith('data.'), `${label}: 绑定必须以 data. 开头：${binding}`)
     const value = getByPath(data, binding.slice('data.'.length))
@@ -198,40 +197,79 @@ function assertStructure (view, data, label) {
     for (const item of Object.values(value)) walk(item)
   }
   walk(view)
-  assert.ok(Array.isArray(data.rows) && data.rows.length <= 50, `${label}: list 行数`)
-  assert.ok(Array.isArray(data.detail.rows) && data.detail.rows.length <= 24, `${label}: keyValue 行数`)
+  assert.ok(Array.isArray(data.cards), `${label}: 缺少 data.cards`)
+  assert.ok(Array.isArray(data.rows) && data.rows.length <= 50, `${label}: v1 list 行数`)
+  assert.equal(data.cards.length, data.rows.length, `${label}: cards 与 rows 同序同数`)
+  for (const card of data.cards) {
+    assert.equal(typeof card.name, 'string', `${label}: card.name`)
+    assert.equal(typeof card.balance, 'string', `${label}: card.balance`)
+    assert.equal(typeof card.usage, 'string', `${label}: card.usage`)
+    assert.equal(typeof card.status, 'string', `${label}: card.status`)
+    assert.equal(typeof card.error, 'string', `${label}: card.error`)
+    assert.equal(findUndefined(card), null, `${label}: card 里有 undefined`)
+  }
   assert.equal(findUndefined(data), null, `${label}: 数据里有 undefined`)
   assert.ok(Buffer.byteLength(JSON.stringify(data)) <= 32768, `${label}: 数据超 32 KiB`)
 }
 
 function samples () {
   const empty = freshState()
-  const rows = freshState()
-  rows.config.providers.push(makeProvider(), makeProvider({ id: 'p_def67890', name: '中转', secret: '', secretSet: true, enabled: false }))
-  rows.results.p_abc12345 = makeResult('p_abc12345')
 
-  const errorState = freshState()
-  errorState.config.providers.push(makeProvider())
-  errorState.selectedId = 'p_abc12345'
-  errorState.results.p_abc12345 = makeResult('p_abc12345', { ok: false, balance: null, error: '密钥或令牌无效' })
-
-  const selected = stateWithProvider({ selectedId: 'p_abc12345' })
+  const cards = freshState()
+  cards.config.providers.push(
+    makeProvider(),
+    makeProvider({
+      id: 'p_def67890',
+      name: '中转',
+      preset: 'newapi',
+      url: 'https://relay.example.com/api/user/self',
+      usageUrl: 'https://relay.example.com/api/data/self?start_timestamp={7d}&end_timestamp={now}',
+      usageArrayPath: 'data',
+      usageFields: [{ label: '近7天 Token', path: 'token_used' }, { label: '近7天 请求', path: 'count' }],
+      divisor: 500000,
+      balancePath: 'data.quota',
+      symbol: '¥',
+      secret: 'sk-relay-token',
+    }),
+    makeProvider({ id: 'p_ghi24680', name: '自定义', preset: 'custom', symbol: '$' }),
+  )
+  cards.config.providers[2].enabled = false
+  cards.results.p_abc12345 = makeResult('p_abc12345', {
+    usage: [{ label: '近7天 Token', value: 1554060713 }, { label: '近7天 请求', value: 6837 }],
+  })
+  cards.results.p_def67890 = makeResult('p_def67890', {
+    ok: false,
+    balance: null,
+    error: '密钥或令牌无效',
+    details: [],
+    usage: [{ label: '近7天 请求', value: 12 }],
+  })
 
   const formNew = freshState({ formOpen: true, form: emptyForm() })
 
-  const formEdit = stateWithProvider({ formOpen: true, editingId: 'p_abc12345' })
+  const formEdit = freshState({ formOpen: true, editingId: 'p_abc12345' })
+  formEdit.config.providers.push(makeProvider())
   formEdit.form = providerForm(formEdit.config.providers[0])
 
-  const confirm = stateWithProvider({ selectedId: 'p_abc12345', confirmDelete: { id: 'p_abc12345' } })
+  const confirm = stateWithProvider({ confirmDelete: { id: 'p_abc12345' } })
 
-  const tested = stateWithProvider({ selectedId: 'p_abc12345' })
+  const tested = stateWithProvider()
   tested.test = { id: 'p_abc12345', title: 'DeepSeek · 接口原始返回（已脱敏）', raw: '{"balance":12.5}' }
 
-  const worst = freshState({ formOpen: true, selectedId: 'p_abc12345', confirmDelete: { id: 'p_abc12345' } })
+  const worst = freshState({ formOpen: true, confirmDelete: { id: 'p_00000000' } })
   for (let index = 0; index < 24; index++) {
-    const provider = makeProvider({ id: `p_${String(index).padStart(8, '0')}`, name: `服务 ${index}` })
+    const preset = ['deepseek', 'newapi', 'custom'][index % 3]
+    const provider = makeProvider({
+      id: `p_${String(index).padStart(8, '0')}`,
+      name: `服务 ${index}`,
+      preset,
+      usageUrl: preset === 'deepseek' ? '' : 'https://relay.example.com/api/data/self',
+      usageFields: preset === 'deepseek' ? [] : [{ label: '近7天 Token', path: 'token_used' }],
+    })
     worst.config.providers.push(provider)
-    worst.results[provider.id] = makeResult(provider.id)
+    worst.results[provider.id] = makeResult(provider.id, {
+      usage: preset === 'deepseek' ? [] : [{ label: '近7天 Token', value: 1554060713 }],
+    })
   }
   worst.form = providerForm(worst.config.providers[0])
   worst.test = { id: worst.config.providers[0].id, title: 'x'.repeat(20), raw: 'x'.repeat(8000) }
@@ -239,10 +277,10 @@ function samples () {
   const picking = freshState({ pickTemplate: true })
   const deepseekForm = freshState({ formOpen: true, form: draftForm(presetDraft('deepseek')) })
   const newapiForm = freshState({ formOpen: true, form: draftForm(presetDraft('newapi')) })
-  return { empty, rows, errorState, selected, formNew, formEdit, confirm, tested, worst, picking, deepseekForm, newapiForm }
+  return { empty, cards, formNew, formEdit, confirm, tested, worst, picking, deepseekForm, newapiForm }
 }
 
-// ---------- 文案 ----------
+// ---------- 文案 ----------// ---------- 文案 ----------
 
 function leafKeys (value, prefix = '', out = []) {
   if (Array.isArray(value)) {
@@ -341,7 +379,7 @@ test('panelView: v2 根节点、无 minApp、自定义表单两页签与必填�
 
 test('panelView: 添加向导先出三种服务类型（list 行内 choose-template）', () => {
   const view = panelView(freshState({ pickTemplate: true }), FULL_CAPS)
-  assert.deepEqual(childrenTypes(view), ['metric', 'emptyState', 'text', 'list', 'actions'])
+  assert.deepEqual(childrenTypes(view), ['emptyState', 'text', 'list', 'actions'])
   const list = view.children.find((child) => child.type === 'list')
   assert.equal(list.items.length, 3)
   assert.deepEqual(list.items.map((item) => item.action), [
@@ -353,7 +391,7 @@ test('panelView: 添加向导先出三种服务类型（list 行内 choose-templ
   assert.ok(!JSON.stringify(view).includes('"form"'), '选类型阶段不出表单')
 
   const withProvider = stateWithProvider({ pickTemplate: true })
-  assert.deepEqual(childrenTypes(panelView(withProvider, FULL_CAPS)), ['metric', 'list', 'text', 'list', 'actions'])
+  assert.deepEqual(childrenTypes(panelView(withProvider, FULL_CAPS)), ['stack', 'text', 'list', 'actions'])
 })
 
 test('panelView: 模板表单只显示关键字段（deepseek 2 项 / newapi 5 项）', () => {
@@ -393,22 +431,39 @@ test('panelView: 所有状态下的绑定路径都能在 panelData 找到', () =
   }
 })
 
-test('panelData: 行内 select action、总余额、明细、状态条', () => {
-  const state = stateWithProvider({ selectedId: 'p_abc12345', busy: false })
+test('panelData: cards 与 providers 同序，含名称/余额/用量/状态/错误', () => {
+  const state = stateWithProvider()
+  state.config.providers[0].usageUrl = 'https://relay.example.com/api/data/self'
+  state.results.p_abc12345 = makeResult('p_abc12345', {
+    usage: [{ label: '近7天 Token', value: 1554060713 }, { label: '近7天 请求', value: 6837 }],
+  })
   const data = panelData(state, FULL_CAPS)
-  assert.equal(data.total.text, '¥1,234.50')
-  assert.equal(data.rows.length, 1)
-  assert.deepEqual(data.rows[0].action, { id: 'select', args: { id: 'p_abc12345' } })
-  assert.equal(data.rows[0].tone, 'good')
-  assert.ok(data.rows[0].subtitle.startsWith('成功'))
-  assert.equal(Object.hasOwn(data.detail, 'title'), false, '详情不再带标题')
-  assert.deepEqual(data.detail.rows, [{ label: '充值余额', value: '¥1,000.00' }])
-  assert.equal(data.detail.error, '')
-  assert.equal(data.formOpen, false)
-  assert.equal(data.form.secret, '')
-  assert.equal(data.test.raw, '')
-  assert.equal(data.confirmDelete.text, '')
-  assert.equal(stripData(state, FULL_CAPS).icon, 'wallet')
+  assert.equal(Object.hasOwn(data, 'total'), false, '不再有总余额')
+  assert.equal(Object.hasOwn(data, 'detail'), false, '不再有选中详情')
+  assert.equal(Object.hasOwn(data, 'confirmDelete'), false)
+  assert.equal(data.cards.length, 1)
+  assert.deepEqual(Object.keys(data.cards[0]).sort(), ['balance', 'error', 'name', 'status', 'usage'])
+  assert.equal(data.cards[0].name, 'DeepSeek')
+  assert.equal(data.cards[0].balance, '¥1,234.50')
+  assert.ok(data.cards[0].usage.includes('近7天 Token 15.5亿'), data.cards[0].usage)
+  assert.ok(data.cards[0].usage.includes('近7天 请求 6,837'), data.cards[0].usage)
+  assert.equal(data.cards[0].status, '成功 · 09:12')
+  assert.equal(data.cards[0].error, '')
+  assert.equal(data.rows.length, 1, 'v1 仍用列表摘要')
+
+  state.results.p_abc12345 = makeResult('p_abc12345', { ok: false, balance: null, error: '密钥或令牌无效' })
+  const failedCard = panelData(state, FULL_CAPS).cards[0]
+  assert.equal(failedCard.balance, '—')
+  assert.equal(failedCard.error, '密钥或令牌无效')
+  assert.ok(failedCard.status.startsWith('失败'), failedCard.status)
+
+  const never = freshState()
+  never.config.providers.push(makeProvider())
+  const neverCard = panelData(never, FULL_CAPS).cards[0]
+  assert.equal(neverCard.balance, '—')
+  assert.equal(neverCard.status, '还没查过')
+  assert.equal(neverCard.usage, '')
+  assert.deepEqual(stripData(state, FULL_CAPS), { text: '' })
 })
 
 test('列表副标题：拼最多 2 项用量，整行 ≤60 字，无用量保持原样', () => {
@@ -554,7 +609,7 @@ test('FORM_LIMITS: 按 spec §11.4 收紧，含用量字段', () => {
 // ---------- 安全 ----------
 
 test('安全：视图与数据里不出现密钥/用户名（连打码值也不放）', () => {
-  const state = stateWithProvider({ selectedId: 'p_abc12345', formOpen: true })
+  const state = stateWithProvider({ formOpen: true })
   state.form = providerForm(state.config.providers[0])
   const secret = state.config.providers[0].secret
   state.config.providers[0].username = 'alice-user'
@@ -579,7 +634,7 @@ test('安全：query 鉴权时接口 URL 里的密钥不进任何文本', () => 
     url: 'https://api.example.com/balance?key=sk-query-secret-999',
     secret: 'sk-query-secret-999',
   })
-  const state = freshState({ selectedId: provider.id })
+  const state = freshState()
   state.config.providers.push(provider)
   state.results[provider.id] = makeResult(provider.id, { ok: false, error: '连不上接口，检查地址或网络' })
   const viewJson = JSON.stringify(panelView(state, FULL_CAPS))
@@ -613,145 +668,147 @@ function bottomActions (view) {
   return last
 }
 
-test('布局顺序：metric → 列表/空状态 → 详情 → 编辑/删除 → 确认 → 测试 → 表单+取消 → 底部 actions', () => {
+test('布局顺序：空状态/卡片 → 测试结果 → 向导/表单 → 底部 actions（无总余额/列表）', () => {
   const empty = panelView(freshState(), FULL_CAPS)
-  assert.deepEqual(childrenTypes(empty), ['metric', 'emptyState', 'actions'])
+  assert.deepEqual(childrenTypes(empty), ['emptyState', 'actions'])
+  assert.ok(!JSON.stringify(empty).includes('"metric"'))
+  assert.ok(!JSON.stringify(empty).includes('"list"'))
   assert.deepEqual(bottomActions(empty).items.map((item) => item.action), ['refresh', 'add'])
 
-  const listed = stateWithProvider()
-  assert.deepEqual(childrenTypes(panelView(listed, FULL_CAPS)), ['metric', 'list', 'actions'])
+  const one = stateWithProvider()
+  assert.deepEqual(childrenTypes(panelView(one, FULL_CAPS)), ['stack', 'actions'])
 
-  const selected = stateWithProvider({ selectedId: 'p_abc12345' })
-  assert.deepEqual(childrenTypes(panelView(selected, FULL_CAPS)), ['metric', 'list', 'stack', 'grid', 'actions'])
+  const two = stateWithProvider()
+  two.config.providers.push(makeProvider({ id: 'p_def67890', name: '第二家' }))
+  assert.deepEqual(childrenTypes(panelView(two, FULL_CAPS)), ['stack', 'stack', 'actions'])
 
-  const confirm = stateWithProvider({ selectedId: 'p_abc12345', confirmDelete: { id: 'p_abc12345' } })
-  assert.deepEqual(childrenTypes(panelView(confirm, FULL_CAPS)), ['metric', 'list', 'stack', 'grid', 'stack', 'actions'])
-
-  const tested = stateWithProvider({ selectedId: 'p_abc12345' })
+  const tested = stateWithProvider()
   tested.test = { id: 'p_abc12345', title: '测试', raw: '{"a":1}' }
-  assert.deepEqual(childrenTypes(panelView(tested, FULL_CAPS)), ['metric', 'list', 'stack', 'grid', 'stack', 'actions'])
+  assert.deepEqual(childrenTypes(panelView(tested, FULL_CAPS)), ['stack', 'stack', 'actions'])
 
-  const form = stateWithProvider({ selectedId: 'p_abc12345', formOpen: true })
+  const picking = stateWithProvider({ pickTemplate: true })
+  assert.deepEqual(childrenTypes(panelView(picking, FULL_CAPS)), ['stack', 'text', 'list', 'actions'])
+
+  const form = stateWithProvider({ formOpen: true })
   form.form = providerForm(form.config.providers[0])
   const formView = panelView(form, FULL_CAPS)
-  assert.deepEqual(childrenTypes(formView), ['metric', 'list', 'stack', 'grid', 'text', 'form', 'actions', 'actions'])
-  const cancel = formView.children.at(-2)
-  assert.deepEqual(cancel.items.map((item) => item.action), ['form-cancel'])
+  assert.deepEqual(childrenTypes(formView), ['stack', 'text', 'form', 'actions', 'actions'])
+  assert.deepEqual(formView.children.at(-2).items.map((item) => item.action), ['form-cancel'])
   assert.deepEqual(bottomActions(formView).items.map((item) => item.action), ['refresh', 'add'])
 
   const formEmpty = panelView(freshState({ formOpen: true }), FULL_CAPS)
-  assert.deepEqual(childrenTypes(formEmpty), ['metric', 'emptyState', 'form', 'actions', 'actions'])
+  assert.deepEqual(childrenTypes(formEmpty), ['emptyState', 'form', 'actions', 'actions'])
   assert.deepEqual(bottomActions(formEmpty).items.map((item) => item.action), ['refresh', 'add'])
 })
 
-test('编辑/删除：选中时是一行两个半宽小按钮（grid 两列各一个单项 actions）', () => {
-  const selected = stateWithProvider({ selectedId: 'p_abc12345' })
-  const view = panelView(selected, FULL_CAPS)
-  const grids = nodesOfType(view, 'grid')
-  assert.equal(grids.length, 1)
-  const grid = grids[0]
+test('卡片按钮：grid 分格小按钮，编辑/删除带静态 args，custom 多一个测试', () => {
+  const deepseekView = panelView(stateWithProvider(), FULL_CAPS)
+  const card = deepseekView.children[0]
+  assert.equal(card.type, 'stack')
+  const grid = nodesOfType(card, 'grid')[0]
   assert.equal(grid.columns, 2)
   assert.equal(grid.children.length, 2)
   assert.deepEqual(grid.children.map((child) => child.type), ['actions', 'actions'])
   for (const child of grid.children) assert.equal(child.items.length, 1, '每个半宽按钮单独一个 actions')
-  assert.deepEqual(grid.children.map((child) => child.items[0].action), ['edit', 'delete'])
+  assert.deepEqual(grid.children.map((child) => child.items[0].action), [
+    { id: 'edit', args: { id: 'p_abc12345' } },
+    { id: 'delete', args: { id: 'p_abc12345' } },
+  ])
   assert.equal(grid.children[0].items[0].label, words('zh').edit)
   assert.equal(grid.children[1].items[0].label, words('zh').delete)
-  // 不能再用一个通栏 actions 塞两个按钮
-  for (const actions of nodesOfType(view, 'actions')) {
-    const ids = actions.items.map((item) => item.action)
-    if (ids.includes('edit') || ids.includes('delete')) {
-      assert.equal(actions.items.length, 1, '编辑/删除不能共用一个 actions')
-    }
-  }
 
-  for (const state of [freshState(), stateWithProvider()]) {
-    assert.equal(nodesOfType(panelView(state, FULL_CAPS), 'grid').length, 0, '未选中时没有编辑/删除')
-  }
-  const formOpen = freshState({ formOpen: true })
-  assert.equal(nodesOfType(panelView(formOpen, FULL_CAPS), 'grid').length, 0)
-})
-
-test('详情精简：只留 detailPaths 明细，无标题、无状态/余额/币种等行', () => {
-  const state = stateWithProvider({ selectedId: 'p_abc12345' })
-  state.results.p_abc12345 = makeResult('p_abc12345', {
-    details: [
-      { label: '充值余额', value: 1000 },
-      { label: '赠送余额', value: 20 },
-    ],
-  })
-  const data = panelData(state, FULL_CAPS)
-  assert.deepEqual(data.detail.rows, [
-    { label: '充值余额', value: '¥1,000.00' },
-    { label: '赠送余额', value: '¥20.00' },
+  const custom = stateWithProvider()
+  custom.config.providers[0].preset = 'custom'
+  const customGrid = nodesOfType(panelView(custom, FULL_CAPS), 'grid')[0]
+  assert.equal(customGrid.columns, 3)
+  assert.deepEqual(customGrid.children.map((child) => child.items[0].action), [
+    { id: 'edit', args: { id: 'p_abc12345' } },
+    { id: 'test', args: { id: 'p_abc12345' } },
+    { id: 'delete', args: { id: 'p_abc12345' } },
   ])
-  const labels = data.detail.rows.map((row) => row.label)
-  for (const removed of ['状态', '余额', '币种', '更新时间', '鉴权方式', '内置模板', '服务详情']) {
-    assert.ok(!labels.includes(removed), `详情不应再有「${removed}」行`)
-  }
-  const viewJson = JSON.stringify(panelView(state, FULL_CAPS))
-  assert.ok(!viewJson.includes('服务详情'), '详情卡标题应去掉')
-  assert.equal(nodesOfType(panelView(state, FULL_CAPS), 'keyValue').length, 1)
-
-  // 没有明细、没有错误：不渲染详情卡片/标题
-  const plain = stateWithProvider({ selectedId: 'p_abc12345' })
-  plain.results.p_abc12345 = makeResult('p_abc12345', { details: [] })
-  assert.deepEqual(panelData(plain, FULL_CAPS).detail, { rows: [], error: '' })
-  assert.equal(nodesOfType(panelView(plain, FULL_CAPS), 'keyValue').length, 0)
-  assert.ok(!JSON.stringify(panelView(plain, FULL_CAPS)).includes('detail.rows'))
-  assert.deepEqual(childrenTypes(panelView(plain, FULL_CAPS)), ['metric', 'list', 'grid', 'actions'])
-
-  // 有错误：仍用 callout 显示 detail.error，不渲染空的 keyValue
-  const failed = stateWithProvider({ selectedId: 'p_abc12345' })
-  failed.results.p_abc12345 = makeResult('p_abc12345', { ok: false, balance: null, details: [], error: '密钥或令牌无效' })
-  const failedData = panelData(failed, FULL_CAPS)
-  assert.deepEqual(failedData.detail, { rows: [], error: '密钥或令牌无效' })
-  const failedView = panelView(failed, FULL_CAPS)
-  assert.equal(nodesOfType(failedView, 'keyValue').length, 0)
-  assert.equal(nodesOfType(failedView, 'callout').length, 1)
-  assert.ok(JSON.stringify(failedView).includes('data.detail.error'))
-
-  // 未选中：没有详情块
-  assert.equal(nodesOfType(panelView(stateWithProvider(), FULL_CAPS), 'keyValue').length, 0)
+  assert.equal(customGrid.children[1].items[0].label, words('zh').test)
 })
 
-// ---------- 老 App 降级 ----------
+test('删除确认在卡片里：callout + grid [确认删除][取消] 静态 args', () => {
+  const state = stateWithProvider({ confirmDelete: { id: 'p_abc12345' } })
+  const view = panelView(state, FULL_CAPS)
+  const card = view.children[0]
+  const callout = nodesOfType(card, 'callout')[0]
+  assert.ok(callout.text.includes('确定删除'), callout.text)
+  const grid = nodesOfType(card, 'grid')[0]
+  assert.equal(grid.columns, 2)
+  assert.deepEqual(grid.children.map((child) => child.items[0].action), [
+    { id: 'delete', args: { id: 'p_abc12345', confirm: true } },
+    { id: 'delete-cancel', args: { id: 'p_abc12345' } },
+  ])
+  assert.deepEqual(grid.children.map((child) => child.items[0].label), [words('zh').confirmLabel, words('zh').cancelLabel])
+  assert.equal(nodesOfType(card, 'grid').length, 1, '确认时不再显示编辑/测试按钮')
+})
 
-test('panelView: 缺 form/textField/tabs 时退成 v1 只读摘要 + 升级提示', () => {
-  const state = stateWithProvider({ selectedId: 'p_abc12345' })
+test('卡片内容：名称/余额/用量/状态；失败 callout；不再有 keyValue 详情', () => {
+  const state = stateWithProvider()
+  state.config.providers[0].usageUrl = 'https://relay.example.com/api/data/self'
+  state.results.p_abc12345 = makeResult('p_abc12345', {
+    usage: [{ label: '近7天 Token', value: 1554060713 }, { label: '近7天 请求', value: 6837 }],
+  })
+  const view = panelView(state, FULL_CAPS)
+  const json = JSON.stringify(view)
+  assert.ok(!json.includes('"keyValue"'), '卡片里不再有 keyValue 详情')
+  assert.ok(!json.includes('服务详情'))
+  assert.ok(!json.includes('"metric"'))
+  const card = view.children[0]
+  const texts = nodesOfType(card, 'text')
+  assert.equal(texts.length, 4, '名称 / 余额 / 用量 / 状态')
+  assert.equal(texts[0].text.$, 'data.cards[0].name')
+  assert.equal(texts[1].text.$, 'data.cards[0].balance')
+  assert.equal(texts[2].text.$, 'data.cards[0].usage')
+  assert.equal(texts[3].text.$, 'data.cards[0].status')
+  assert.equal(texts[1].style.weight, 'bold')
+  assert.equal(texts[0].style.weight, 'semibold')
+
+  const noUsage = stateWithProvider()
+  assert.equal(nodesOfType(panelView(noUsage, FULL_CAPS).children[0], 'text').length, 3, '没配用量就不显示用量行')
+
+  const failed = stateWithProvider()
+  failed.results.p_abc12345 = makeResult('p_abc12345', { ok: false, balance: null, error: '密钥或令牌无效' })
+  const failedView = panelView(failed, FULL_CAPS)
+  const callout = nodesOfType(failedView.children[0], 'callout')[0]
+  assert.equal(callout.tone, 'bad')
+  assert.equal(callout.text.$, 'data.cards[0].error')
+
+  const disabled = stateWithProvider()
+  disabled.config.providers[0].enabled = false
+  assert.equal(panelData(disabled, FULL_CAPS).cards[0].status, '已停用')
+})
+
+test('panelView: 缺 form/textField/tabs 时退成 v1 只读列表摘要 + 升级提示', () => {
+  const state = stateWithProvider()
   for (const caps of [{}, { components: ['form'] }, { components: ['form', 'textField'] }]) {
     assert.equal(hasComponent(caps, 'tabs'), false)
     const view = panelView(state, caps)
     assert.equal(view.v, undefined, 'v1 视图不写 v')
     const json = JSON.stringify(view)
-    for (const type of ['"form"', '"tabs"', '"textField"']) assert.ok(!json.includes(type), `v1 不应包含 ${type}`)
+    for (const type of ['"form"', '"tabs"', '"textField"', '"metric"', '"grid"']) {
+      assert.ok(!json.includes(type), `v1 不应包含 ${type}`)
+    }
+    assert.ok(json.includes('"list"'))
     assert.ok(json.includes('升级 App'), '缺少升级提示')
     assertResolvable(view, panelData(state, caps), 'v1')
     assertStructure(view, panelData(state, caps), 'v1')
   }
 })
 
-// ---------- 状态条 ----------
-
-test('stripData: ≤24 字、只读缓存、关闭或没有结果时为空串', () => {
-  const state = stateWithProvider()
-  const strip = stripData(state, FULL_CAPS)
-  assert.equal(strip.icon, 'wallet')
-  assert.ok([...strip.text].length <= 24)
-  assert.ok(!strip.text.includes(state.config.providers[0].secret))
-
-  const en = stripData(state, { ...FULL_CAPS, locale: 'en-US' })
-  assert.ok(en.text.startsWith('Balance'))
-
-  const disabled = stateWithProvider()
-  disabled.config.settings.stripEnabled = false
-  assert.deepEqual(stripData(disabled, FULL_CAPS), { text: '' })
+test('stripData: 不再显示总余额，始终返回空串（不联网）', () => {
+  const withResult = stateWithProvider()
+  assert.deepEqual(stripData(withResult, FULL_CAPS), { text: '' })
+  assert.deepEqual(stripData(withResult, { ...FULL_CAPS, locale: 'en-US' }), { text: '' })
+  assert.deepEqual(stripData(freshState(), FULL_CAPS), { text: '' })
 
   const failed = stateWithProvider()
   failed.results.p_abc12345 = makeResult('p_abc12345', { ok: false })
   assert.deepEqual(stripData(failed, FULL_CAPS), { text: '' })
 
-  assert.deepEqual(stripData(freshState(), FULL_CAPS), { text: '' })
+  assert.equal(Object.hasOwn(stripData(withResult, FULL_CAPS), 'icon'), false)
 })
 
 // ---------- 表单辅助 ----------
@@ -876,7 +933,7 @@ test('apply: 注册 panel/strip，加载时不联网、不写配置文件', asyn
   assert.equal(regs.strip.id, 'balance-strip')
   assert.equal(typeof regs.panel.view, 'function')
   assert.equal(typeof regs.panel.data, 'function')
-  for (const action of ['refresh', 'select', 'add', 'choose-template', 'edit', 'form-cancel', 'save', 'delete', 'test', 'close-test']) {
+  for (const action of ['refresh', 'add', 'choose-template', 'edit', 'form-cancel', 'save', 'delete', 'delete-cancel', 'test', 'close-test']) {
     assert.equal(typeof regs.panel.actions[action], 'function', `缺少动作 ${action}`)
   }
   await store.ensureReady()
@@ -974,18 +1031,22 @@ test('apply: 缓存还新或 refreshOnOpen=false 时不后台刷新', async (t) 
   assert.ok(store.state.config.providers.length === 1)
 })
 
-test('actions: select/add/edit/form-cancel 返回 patch+refresh 并更新视图状态', async (t) => {
+test('actions: add/edit(静态 args)/form-cancel 返回 patch+refresh 并更新视图状态', async (t) => {
   const home = await tempHome(t)
   const { ctx, regs } = fakeHost()
-  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, { balance: 1 }) })
+  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, { data: { balance: 1 } }) })
   await store.ensureReady()
   store.state.config.providers.push(makeProvider())
   store.state.results.p_abc12345 = makeResult('p_abc12345')
 
-  let effects = await store.actions.select({}, { locale: 'zh-CN', value: { id: 'p_abc12345' } })
+  let effects = await store.actions.edit({}, { locale: 'zh-CN', value: { id: 'p_abc12345' } })
   assert.equal(effectTypes(effects).includes('patch'), true)
   assert.equal(effectTypes(effects).includes('refresh'), true)
-  assert.equal(store.state.selectedId, 'p_abc12345')
+  assert.equal(store.state.formOpen, true)
+  assert.equal(store.state.editingId, 'p_abc12345')
+  assert.equal(store.state.form.secret, '')
+  assert.equal(store.state.form.secretSet, true)
+  assert.equal(store.state.form.name, 'DeepSeek')
   assert.deepEqual(effects[1], { type: 'refresh', id: 'balance' })
   assert.ok(regs.refreshIds.length > 0)
 
@@ -1001,12 +1062,6 @@ test('actions: select/add/edit/form-cancel 返回 patch+refresh 并更新视图�
   assert.equal(store.state.form.secret, '')
   assert.equal(store.state.form.secretSet, false)
   assert.equal(effectTypes(effects).includes('refresh'), true)
-
-  effects = await store.actions.edit({}, { locale: 'zh-CN' })
-  assert.equal(store.state.formOpen, true)
-  assert.equal(store.state.form.secret, '')
-  assert.equal(store.state.form.secretSet, true)
-  assert.equal(store.state.form.name, 'DeepSeek')
 
   effects = await store.actions['form-cancel']({}, { locale: 'zh-CN' })
   assert.equal(store.state.formOpen, false)
@@ -1111,7 +1166,10 @@ test('actions: save 成功落盘、清空表单、toast 已保存', async (t) =>
   assert.equal(saved.providers[0].name, '我的服务')
   assert.equal(saved.providers[0].multiplier, 500000)
   assert.equal(saved.providers[0].secret, 'sk-test-secret-abcdef')
-  assert.equal(store.state.selectedId, saved.providers[0].id)
+  assert.equal(store.state.formOpen, false)
+  const patch = effects.find((effect) => effect.type === 'patch')
+  assert.equal(patch.data.cards.length, 1)
+  assert.equal(patch.data.cards[0].name, '我的服务')
 })
 
 test('actions: save 解析 usageFieldsText、透传 usage 字段并落盘', async (t) => {
@@ -1173,30 +1231,30 @@ test('actions: save 填了用量地址但没填用量字段时给人话报错', 
   assert.equal(effect.text, '填了用量地址就要填用量字段')
 })
 
-test('actions: delete 先确认再删除，并清 results 缓存', async (t) => {
+test('actions: delete 用静态 args 先确认、可取消，确认后删除并清 results 缓存', async (t) => {
   const home = await tempHome(t)
   const provider = makeProvider()
   await saveConfig({ v: 1, providers: [provider], settings: { stripEnabled: true, refreshOnOpen: false, timeoutMs: 12000 } }, configPath(home))
   await saveResults({ v: 1, results: { [provider.id]: makeResult(provider.id) } }, resultsPath(home))
-  const { ctx, regs } = fakeHost()
-  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, { balance: 1 }) })
+  const { ctx } = fakeHost()
+  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, { data: { balance: 1 } }) })
   await store.ensureReady()
-  store.state.selectedId = provider.id
 
-  let effects = await store.actions.delete({}, { locale: 'zh-CN' })
+  let effects = await store.actions.delete({}, { locale: 'zh-CN', value: { id: provider.id } })
   assert.equal(effectTypes(effects).includes('refresh'), true)
   assert.deepEqual(store.state.confirmDelete, { id: provider.id })
-  const patch = effects.find((effect) => effect.type === 'patch')
-  assert.equal(patch.data.confirmDelete.text, '确定删除「DeepSeek」？')
+  const confirmView = store.panelView(FULL_CAPS)
+  const callout = nodesOfType(confirmView.children[0], 'callout')[0]
+  assert.ok(callout.text.includes('确定删除「DeepSeek」？'))
 
-  effects = await store.actions.delete({}, { locale: 'zh-CN', value: { confirmed: false } })
+  effects = await store.actions['delete-cancel']({}, { locale: 'zh-CN', value: { id: provider.id } })
   assert.equal(store.state.confirmDelete, null)
   assert.equal(store.state.config.providers.length, 1)
 
-  await store.actions.delete({}, { locale: 'zh-CN' })
-  effects = await store.actions.delete({}, { locale: 'zh-CN', value: { confirmed: true } })
+  await store.actions.delete({}, { locale: 'zh-CN', value: { id: provider.id } })
+  effects = await store.actions.delete({}, { locale: 'zh-CN', value: { id: provider.id, confirm: true } })
   assert.equal(store.state.config.providers.length, 0)
-  assert.equal(store.state.selectedId, '')
+  assert.equal(store.state.confirmDelete, null)
   assert.equal(effects.at(-1).text, '已删除')
   assert.equal(store.state.results[provider.id], undefined)
   const saved = await loadConfig(configPath(home))
@@ -1220,7 +1278,6 @@ test('actions: refresh 用 pending + patch/toast，signal 取消立即返回空'
     },
   })
   await store.ensureReady()
-  store.state.selectedId = provider.id
   store.state.config.providers = [provider]
   const handler = store.actions.refresh({}, { locale: 'zh-CN' })
   assert.equal(handler.pending.label, '正在刷新')
@@ -1236,7 +1293,8 @@ test('actions: refresh 用 pending + patch/toast，signal 取消立即返回空'
   assert.equal(fetchCalls, 1)
   assert.equal(seenAuthorization, `Bearer ${provider.secret}`)
   assert.deepEqual(effectTypes(effects), ['patch', 'toast'])
-  assert.equal(effects[0].data.total.text, '¥12.50')
+  assert.equal(effects[0].data.cards[0].balance, '¥12.50')
+  assert.equal(effects[0].data.cards[0].status, '成功 · 09:12')
   assert.equal(effects[1].text, '已更新 1 家')
   assert.ok(!JSON.stringify(effects).includes(provider.secret))
 })
@@ -1257,9 +1315,8 @@ test('actions: test 用 preview 并在 patch 前脱敏密钥/用户名', async (
     }),
   })
   await store.ensureReady()
-  store.state.selectedId = provider.id
   store.state.config.providers = [provider]
-  const handler = store.actions.test({}, { locale: 'zh-CN' })
+  const handler = store.actions.test({}, { locale: 'zh-CN', value: { id: provider.id } })
   assert.equal(handler.pending.label, '正在测试')
   assert.equal(handler.pending.timeoutMs, 30000)
   const effects = await handler.result(new AbortController().signal)
@@ -1271,6 +1328,7 @@ test('actions: test 用 preview 并在 patch 前脱敏密钥/用户名', async (
   assert.ok(!raw.includes('alice-user'))
   assert.ok(!raw.includes('abcdefghijklmnop'))
   assert.equal(store.state.test.id, provider.id)
+  assert.equal(effects[0].data.cards[0].balance, '¥3.00')
   const effectJson = JSON.stringify(effects)
   assert.ok(!effectJson.includes(provider.secret))
   assert.ok(Buffer.byteLength(effectJson) <= 16384, 'patch 数据超 16 KiB')
@@ -1294,7 +1352,7 @@ test('panelView: v2 但缺 emptyState/codeBlock 时用 callout/text 兜底', () 
   const emptyJson = JSON.stringify(empty)
   assert.ok(emptyJson.includes('"callout"'))
   assert.ok(!emptyJson.includes('"emptyState"'))
-  const tested = stateWithProvider({ selectedId: 'p_abc12345' })
+  const tested = stateWithProvider()
   tested.test = { id: 'p_abc12345', title: '测试', raw: '{"a":1}' }
   const testedView = panelView(tested, caps)
   const testedJson = JSON.stringify(testedView)
@@ -1515,8 +1573,7 @@ test('actions: 编辑旧 newapi（url 带 /v1）反推根地址，保存即修�
   const { ctx } = fakeHost()
   const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, { data: { balance: 1 } }) })
   await store.ensureReady()
-  store.state.selectedId = broken.id
-  await store.actions.edit({}, { locale: 'zh-CN' })
+  await store.actions.edit({}, { locale: 'zh-CN', value: { id: broken.id } })
   assert.equal(store.state.form.siteBase, 'https://sta1n.ai')
   await store.actions.save({}, {
     locale: 'zh-CN',
@@ -1537,4 +1594,37 @@ test('actions: 编辑旧 newapi（url 带 /v1）反推根地址，保存即修�
     'https://sta1n.ai/api/data/self?start_timestamp={7d}&end_timestamp={now}&default_time=day',
   )
   assert.equal(saved.secret, broken.secret, '编辑留空沿用原密钥')
+})
+
+
+// ---------- v1.4：卡片预算 ----------
+
+test('卡片预算：服务很多时按节点预算截断并给提示，data.cards 仍与 providers 同序', () => {
+  const state = freshState()
+  for (let index = 0; index < 24; index++) {
+    state.config.providers.push(makeProvider({
+      id: `p_${String(index).padStart(8, '0')}`,
+      name: `服务 ${index}`,
+      preset: 'custom',
+      usageUrl: 'https://relay.example.com/api/data/self',
+    }))
+    state.results[state.config.providers[index].id] = makeResult(state.config.providers[index].id, {
+      usage: [{ label: '近7天 Token', value: 1554060713 }],
+    })
+  }
+  const data = panelData(state, FULL_CAPS)
+  assert.equal(data.cards.length, 24)
+  assert.deepEqual(data.cards.map((card) => card.name), state.config.providers.map((provider) => provider.name))
+  const view = panelView(state, FULL_CAPS)
+  const stats = viewStats(view)
+  assert.ok(stats.nodes <= 120, `节点 ${stats.nodes}`)
+  assert.ok(Buffer.byteLength(JSON.stringify(view)) <= 32768)
+  const cardCount = view.children.filter((child) => child.type === 'stack' && child.style && child.style.card === 'surface').length
+  assert.ok(cardCount > 0 && cardCount < 24, `只显示预算内的 ${cardCount} 张卡片`)
+  const last = view.children.at(-1)
+  assert.equal(last.type, 'actions')
+  const hint = view.children.find((child) => child.type === 'text' && typeof child.text === 'string' && child.text.includes('未显示'))
+  assert.ok(hint, '隐藏的服务要给一行提示')
+  assert.ok(hint.text.includes(String(24 - cardCount)))
+  assertResolvable(view, data, 'many-cards')
 })
