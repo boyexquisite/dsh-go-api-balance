@@ -339,3 +339,20 @@ export function presetOptions() // → [{ label, value }] 给 UI 选项（含 cu
 - 保存成功后自动触发一次后台刷新（`startBackgroundRefresh()` 风格），不用用户再点「刷新」。
 - 移除表单里的「内置模板」select 与 `preset` onChange 动作（避免 patch 不刷新可见值的坑）；模板只能在添加时选。
 - 视图预算、绑定路径、v1 降级、删除确认、测试动作等其余行为不变；tests 同步更新。
+
+## 13. v1.3：new-api 站点地址容错（接入地址也能用）
+
+> 哥哥 2026-11-13 实测：站点地址填了 OpenAI 兼容的「接入地址」`https://sta1n.ai/v1`，
+> 插件拼成 `https://sta1n.ai/v1/api/user/self` → 404「接口不存在」。
+> 站点后台接口在**站点根**下（`/api/user/self`、`/api/data/self`），所以要容错归一化。
+
+- 新增纯函数 `normalizeSiteBase(input)`：
+  1. trim、去掉末尾多余的 `/`；
+  2. 若以 `/api/user/self` 或 `/api/data/self` 等已知后台路径结尾 → 先剥掉该后缀（用户可能直接粘了完整接口地址）；
+  3. 若以 `/v1` 或 `/v1/...` 结尾（OpenAI 兼容接入地址）→ 去掉最后的 `/v1`；
+  4. 仍保留用户可能自带的子路径（如反代 `https://host/newapi`），只做上面的确定性剥离；
+  5. 返回去掉尾部 `/` 的字符串；不合法（非 http(s)）交给现有校验报错。
+- `newapi` 保存：`base = normalizeSiteBase(siteBase)`，`url = base + '/api/user/self'`，`usageUrl = base + '/api/data/self?start_timestamp={7d}&end_timestamp={now}&default_time=day'`。
+- 编辑已有 newapi 服务：`siteBaseOf(provider.url)` = 先剥 `/api/user/self` / `/api/data/self` 后缀，再 `normalizeSiteBase`（所以之前存错的 `https://sta1n.ai/v1/...` 打开编辑会显示 `https://sta1n.ai`，保存即修正）。
+- 表单 caption 文案改成提示：「填站点根地址，或 OpenAI 接入地址（含 /v1 也行，会自动去掉）」。
+- 单元测试：`normalizeSiteBase` 各种输入（带/不带尾斜杠、`/v1`、`/v1/`、完整后台地址、带反代子路径、非法值不抛），以及保存分支与编辑反推；测试宿主集成里用 `https://sta1n.ai/v1` 作为站点地址保存后，provider.url 必须是 `https://sta1n.ai/api/user/self`。

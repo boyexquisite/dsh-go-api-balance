@@ -14,6 +14,7 @@ import {
   draftForm,
   emptyForm,
   hasComponent,
+  normalizeSiteBase,
   panelData,
   panelView,
   parseDetailText,
@@ -380,7 +381,8 @@ test('panelView: 模板表单只显示关键字段（deepseek 2 项 / newapi 5 �
   assert.equal(siteInput.maxLength, FORM_LIMITS.siteBase)
   assert.equal(siteInput.placeholder, words('zh').siteBasePlaceholder)
   assert.ok(!JSON.stringify(newapiView).includes('data.form.url'), 'newapi 不显示裸 url')
-  assert.ok(JSON.stringify(newapiView).includes('/api/data/self'), 'caption 说明自动读用量')
+  assert.ok(JSON.stringify(newapiView).includes('OpenAI 接入地址'), 'caption 提示可以填 /v1 接入地址')
+  assert.ok(JSON.stringify(newapiView).includes('会自动去掉'))
   assert.equal(nodesOfType(newapiView, 'tabs').length, 0)
 })
 
@@ -1312,6 +1314,18 @@ test('表单草稿：providerForm 从 newapi url 反推 siteBase', () => {
     authType: 'bearer',
   })
   assert.equal(providerForm(provider).siteBase, 'https://relay.example.com')
+  const broken = makeProvider({
+    preset: 'newapi',
+    url: 'https://sta1n.ai/v1/api/user/self',
+    authType: 'bearer',
+  })
+  assert.equal(providerForm(broken).siteBase, 'https://sta1n.ai', '旧数据 /v1 打开编辑显示根地址')
+  const usageUrlOnly = makeProvider({
+    preset: 'newapi',
+    url: 'https://sta1n.ai/api/data/self',
+    authType: 'bearer',
+  })
+  assert.equal(providerForm(usageUrlOnly).siteBase, 'https://sta1n.ai')
   const custom = makeProvider({ url: 'https://relay.example.com/custom/balance' })
   assert.equal(providerForm(custom).siteBase, 'https://relay.example.com/custom/balance')
   const deepseek = providerForm(makeProvider({ preset: 'deepseek', url: 'https://api.deepseek.com/user/balance' }))
@@ -1378,7 +1392,7 @@ test('actions: save newapi 由 siteBase 组装 url/usage，名称为空用默认
     value: {
       values: {
         'data.form.name': '',
-        'data.form.siteBase': 'https://sta1n.ai/',
+        'data.form.siteBase': 'https://sta1n.ai/v1',
         'data.form.secret': 'sk-relay-token',
         'data.form.symbol': '$',
         'data.form.multiplier': 2,
@@ -1389,7 +1403,7 @@ test('actions: save newapi 由 siteBase 组装 url/usage，名称为空用默认
   const saved = (await loadConfig(configPath(home))).providers[0]
   assert.equal(saved.name, 'new-api 中转')
   assert.equal(saved.preset, 'newapi')
-  assert.equal(saved.url, 'https://sta1n.ai/api/user/self')
+  assert.equal(saved.url, 'https://sta1n.ai/api/user/self', '/v1 必须自动去掉')
   assert.equal(
     saved.usageUrl,
     'https://sta1n.ai/api/data/self?start_timestamp={7d}&end_timestamp={now}&default_time=day',
@@ -1457,4 +1471,70 @@ test('actions: save custom 名称必填仍走原校验', async (t) => {
   })
   assert.equal(effect.type, 'toast')
   assert.equal(effect.text, '请填名称')
+})
+
+
+// ---------- v1.3：站点地址容错 ----------
+
+test('normalizeSiteBase: 去尾斜杠、剥已知后台路径、剥 /v1、保留反代子路径', () => {
+  const cases = [
+    ['https://sta1n.ai', 'https://sta1n.ai'],
+    ['  https://sta1n.ai/  ', 'https://sta1n.ai'],
+    ['https://sta1n.ai//', 'https://sta1n.ai'],
+    ['https://sta1n.ai/v1', 'https://sta1n.ai'],
+    ['https://sta1n.ai/v1/', 'https://sta1n.ai'],
+    ['https://sta1n.ai/V1', 'https://sta1n.ai'],
+    ['https://sta1n.ai/v1/chat/completions', 'https://sta1n.ai'],
+    ['https://sta1n.ai/api/user/self', 'https://sta1n.ai'],
+    ['https://sta1n.ai/api/data/self', 'https://sta1n.ai'],
+    ['https://sta1n.ai/v1/api/user/self', 'https://sta1n.ai'],
+    ['https://sta1n.ai/api/user/self/v1', 'https://sta1n.ai'],
+    ['https://sta1n.ai/newapi', 'https://sta1n.ai/newapi'],
+    ['https://sta1n.ai/newapi/', 'https://sta1n.ai/newapi'],
+    ['https://sta1n.ai/newapi/v1', 'https://sta1n.ai/newapi'],
+    ['http://host:3000/v1/', 'http://host:3000'],
+    ['sta1n.ai/v1', 'sta1n.ai/v1'],
+    ['', ''],
+  ]
+  for (const [input, expected] of cases) {
+    assert.equal(normalizeSiteBase(input), expected, JSON.stringify(input))
+  }
+  assert.equal(normalizeSiteBase(null), '')
+  assert.equal(normalizeSiteBase(123), '')
+  assert.doesNotThrow(() => normalizeSiteBase('not a url'))
+})
+
+test('actions: 编辑旧 newapi（url 带 /v1）反推根地址，保存即修正', async (t) => {
+  const home = await tempHome(t)
+  const broken = makeProvider({
+    preset: 'newapi',
+    url: 'https://sta1n.ai/v1/api/user/self',
+    balancePath: 'data.quota',
+  })
+  await saveConfig({ v: 1, providers: [broken], settings: { stripEnabled: true, refreshOnOpen: false, timeoutMs: 12000 } }, configPath(home))
+  const { ctx } = fakeHost()
+  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, { data: { balance: 1 } }) })
+  await store.ensureReady()
+  store.state.selectedId = broken.id
+  await store.actions.edit({}, { locale: 'zh-CN' })
+  assert.equal(store.state.form.siteBase, 'https://sta1n.ai')
+  await store.actions.save({}, {
+    locale: 'zh-CN',
+    value: {
+      values: {
+        'data.form.name': broken.name,
+        'data.form.siteBase': store.state.form.siteBase,
+        'data.form.secret': '', // 留空 = 沿用已保存密钥
+        'data.form.symbol': '¥',
+        'data.form.multiplier': 1,
+      },
+    },
+  })
+  const saved = (await loadConfig(configPath(home))).providers[0]
+  assert.equal(saved.url, 'https://sta1n.ai/api/user/self')
+  assert.equal(
+    saved.usageUrl,
+    'https://sta1n.ai/api/data/self?start_timestamp={7d}&end_timestamp={now}&default_time=day',
+  )
+  assert.equal(saved.secret, broken.secret, '编辑留空沿用原密钥')
 })
