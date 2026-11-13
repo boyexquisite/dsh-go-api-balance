@@ -404,3 +404,32 @@ export function presetOptions() // → [{ label, value }] 给 UI 选项（含 cu
 - 面板数据里的 chips 复位：panelData 始终带 `cardChoice<i>: null`；handler 返回的 patch 用 panelData 整份数据，App 的 draft 在 invoke 成功后是 clean，remote 变了会自动清掉草稿。
 - 其余（卡片内容/状态、向导、模板表单、自动刷新、v1 降级、预算、4KiB 断言）不变。
 - tests 同步：卡片 chips 结构/绑定路径（writable 路径也要在 panelData 里）、card-action 两个分支、确认删除、formOpen 时无 chips、输入字段数 ≤32、视图预算、strip 空。
+
+## 16. v1.6：卡片右上角「≡」菜单（编辑/删除收进菜单）
+
+> 哥哥要卡片右上角一个「三杠」菜单，把编辑/删除收进去。App 插件视图没有图标按钮/菜单组件，
+> 也没有能右对齐的独立小按钮（actions/grid/row 都被 136dp × 字号缩放的下限卡住）。
+> 可行做法：用 `list` 单行做卡片标题行——`title=服务名`、`trailing='≡'`、行 action 打开菜单，
+> 右侧天然有箭头；菜单本身用 `list` 行（原生菜单观感）。整行可点，视觉上就是右上角的三杠。
+
+- 卡片结构改为：
+  1. `list`（单行）：`title`=服务名（静态，视图构建时取；改名后 save 会 refresh），`trailing='≡'`，`action:{id:'card-menu',args:{id}}`；
+  2. 余额（text，title bold，绑 `data.cards.<i>.balance`）；
+  3. 用量行（caption gray，绑 `data.cards.<i>.usage`，可空）；
+  4. 状态行（caption，绑 `data.cards.<i>.status`）；
+  5. 失败 callout（绑 error）。
+- `state.menuId === provider.id` 时，卡片里追加菜单 `list`：
+  - `{title:'编辑', action:{id:'card-edit',args:{id}}}`；
+  - `{title:'删除', tone:'bad', action:{id:'card-delete',args:{id}}}`。
+- `state.confirmDelete === provider.id` 时，菜单替换为确认 `list`：
+  - `{title:'确认删除？', tone:'bad', action:{id:'card-delete-confirm',args:{id}}}`；
+  - `{title:'取消', action:{id:'card-delete-cancel',args:{id}}}`。
+- index handler：
+  - `card-menu`：切换 menuId（同 id 再点关闭）、清 confirmDelete；返回 patch+refresh；
+  - `card-edit`：打开编辑表单、清 menuId；patch+refresh；
+  - `card-delete`：设 confirmDelete、清 menuId；patch+refresh；
+  - `card-delete-confirm`：走现有删除逻辑（saveConfig/清 results/toast）并清状态；patch+refresh+toast；
+  - `card-delete-cancel`：清 confirmDelete；patch+refresh。
+- 移除 v1.5 的 chips 操作行、`cardChoice*`/`cardConfirm*` 数据和 `card-action`/`card-confirm` 动作。
+- `formOpen===true` 时卡片标题行不渲染 action（不可点菜单），menuId 清空。
+- 其余（余额/用量/状态展示、向导、模板表单、自动刷新、strip 空、v1 只读降级、预算）不变；tests 同步。
