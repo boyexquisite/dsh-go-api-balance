@@ -4,6 +4,7 @@ import {
   formatAmount,
   formatClock,
   formatDateTime,
+  formatDay,
   formatDetailValue,
   formatNumber,
   formatStripText,
@@ -11,6 +12,7 @@ import {
   redactPreview,
   scaledAmount,
   STRIP_MAX_CHARS,
+  symbolForCurrency,
 } from '../lib/format.js'
 
 function provider (overrides = {}) {
@@ -174,4 +176,33 @@ test('formatUsage: 非有限值与裸数字字段', () => {
   assert.equal(formatUsage({}, { value: 'abc' }), '—')
   assert.equal(formatUsage({}, NaN), '—')
   assert.equal(formatUsage({}, 1234), '1,234')
+})
+
+// ---------- v2.0 币种 / 日期 / 明细 kind ----------
+
+test('symbolForCurrency 映射常见币种，未知返回空串', () => {
+  assert.equal(symbolForCurrency('CNY'), '¥')
+  assert.equal(symbolForCurrency(' usd '), '$')
+  assert.equal(symbolForCurrency('HKD'), 'HK$')
+  assert.equal(symbolForCurrency('XYZ'), '')
+  assert.equal(symbolForCurrency(''), '')
+  assert.equal(symbolForCurrency(null), '')
+})
+
+test('formatDay 接受秒/毫秒，非法给 —', () => {
+  const ms = new Date(2026, 0, 1, 8, 0, 0).getTime()
+  assert.equal(formatDay(ms), '2026-01-01')
+  assert.equal(formatDay(Math.floor(ms / 1000)), '2026-01-01')
+  assert.equal(formatDay(0), '—')
+  assert.equal(formatDay('abc'), '—')
+})
+
+test('formatDetailValue 按 kind 区分金额/计数/日期/文本', () => {
+  const unit = { symbol: '¥', divisor: 1, multiplier: 1, decimals: 2 }
+  assert.equal(formatDetailValue(unit, 1234.5, 'money'), '¥1,234.50')
+  assert.equal(formatDetailValue({ ...unit, symbol: '' }, 1234.5, 'count'), '1,235')
+  assert.equal(formatDetailValue(unit, 1767225600, 'date'), '2026-01-01')
+  assert.equal(formatDetailValue(unit, 'pending', 'text'), 'pending')
+  assert.equal(formatDetailValue(unit, null), '—')
+  assert.equal(formatDetailValue(unit, '0.5'), '¥0.50')
 })

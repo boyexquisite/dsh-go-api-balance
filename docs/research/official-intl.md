@@ -61,3 +61,11 @@ ChatGPT/Codex 订阅额度、Claude Pro/Max、Gemini Advanced / AI Studio 订阅
   3. 双层数组求和（`data[].results[].amount.value`，OpenAI/Anthropic 都需要）；
   4. 数值换算（分→元、units+nanos、`total_credits - total_usage`）。
 - 在补这些之前，建议内置预设只加 **OpenRouter**；其余先引导用户用「自定义」，并在预设说明里注明「需 Admin/Management key、只有用量没有余额」。
+
+---
+
+## 2026-11-13 v2.0 修正
+
+- **Anthropic `cost_report`**：`limit` 默认 **7**（1–31），不带 `limit` 只能拿到前 7 个日桶 → 本月花费会少算。插件 URL 已补 `ending_at={now_iso}&limit=31`。`amount` 是「最低货币单位」（美分）的十进制字符串，除以 100 才是美元——与原结论一致。
+- **OpenAI `costs`**：`amount.value` 是货币金额（美元），不是美分；`start_time` 是 Unix 秒，`end_time` 可选（默认到现在）。插件用 `limit=31` 覆盖整月。
+- **OpenRouter `/api/v1/key`**：`data.limit_remaining` / `usage` / `usage_daily` / `usage_monthly` 均为 USD；未给 key 设消费限额时 `limit_remaining` 为 `null`（插件显示 —）。

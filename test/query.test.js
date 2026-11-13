@@ -27,6 +27,9 @@ function makeProvider (overrides = {}) {
     balancePath: 'data.balance',
     currencyPath: '',
     detailPaths: [],
+    usageFields: [],
+    extraUrl: '',
+    extraFields: [],
     divisor: 1,
     multiplier: 1,
     symbol: '¥',
@@ -1706,4 +1709,159 @@ test('Claude 花费全链路：x-api-key + anthropic-version + ISO 月份 + 分�
   assert.equal(impl.calls[0].init.headers['x-api-key'], 'sk-ant-test')
   assert.equal(impl.calls[0].init.headers['anthropic-version'], '2023-06-01')
   assert.equal(impl.calls[0].init.headers.Authorization, undefined)
+})
+
+// ---------- v2.0 表达式 / 附加信息 ----------
+
+test('balancePath 支持现金 + 赠送这类表达式', async () => {
+  const runner = createRunner({
+    fetchImpl: async () => responseOf(200, {
+      balance_infos: [{ cash_balance: '100.50', gift_balance: '20.00', total_available: '500.50' }],
+    }),
+  })
+  const result = await runner.queryProvider(makeProvider({
+    balancePath: 'balance_infos[0].cash_balance + balance_infos[0].gift_balance',
+  }))
+  assert.equal(result.ok, true)
+  assert.equal(result.balance, 120.5)
+})
+
+test('balancePath 表达式取不到 → 失败；balanceOptional 时允许 null', async () => {
+  const runner = createRunner({ fetchImpl: async () => responseOf(200, { a: 1 }) })
+  const failed = await runner.queryProvider(makeProvider({
+    balancePath: 'data.credit + data.gift',
+  }))
+  assert.equal(failed.ok, false)
+  assert.match(failed.error, /解析不到余额字段/)
+
+  const optional = await runner.queryProvider(makeProvider({
+    balancePath: 'data.credit + data.gift',
+    balanceOptional: true,
+  }))
+  assert.equal(optional.ok, true)
+  assert.equal(optional.balance, null)
+})
+
+test('附加信息：独立第二次请求，表达式算订阅剩余，失败静默', async () => {
+  const impl = recordingFetch((url) => {
+    if (url.endsWith('/api/subscription/self')) {
+      return responseOf(200, {
+        data: {
+          subscriptions: [{
+            subscription: { amount_total: 1000000, amount_used: 400000, end_time: 1767225600 },
+          }],
+        },
+      })
+    }
+    return responseOf(200, { data: { quota: 209786194 } })
+  })
+  const runner = createRunner({ fetchImpl: impl, now: () => 1700000000000 })
+  const provider = makeProvider({
+    preset: 'newapi',
+    url: 'https://relay.example.com/api/user/self',
+    balancePath: 'data.quota',
+    divisor: 500000,
+    extraUrl: 'https://relay.example.com/api/subscription/self',
+    extraFields: [
+      { label: '订阅剩余', path: 'data.subscriptions[].subscription.amount_total - data.subscriptions[].subscription.amount_used' },
+      { label: '订阅总量', path: 'data.subscriptions[].subscription.amount_total' },
+      { label: '订阅已用', path: 'data.subscriptions[].subscription.amount_used' },
+      { label: '订阅到期', path: 'data.subscriptions[0].subscription.end_time', kind: 'date' },
+    ],
+  })
+  const result = await runner.queryProvider(provider)
+  assert.equal(result.ok, true)
+  assert.deepEqual(result.extra, [
+    { label: '订阅剩余', value: 600000, kind: 'money' },
+    { label: '订阅总量', value: 1000000, kind: 'money' },
+    { label: '订阅已用', value: 400000, kind: 'money' },
+    { label: '订阅到期', value: 1767225600, kind: 'date' },
+  ])
+  const extraCall = impl.calls.find((call) => call.url.endsWith('/api/subscription/self'))
+  assert.equal(extraCall.init.method, 'GET')
+  assert.equal(extraCall.init.headers.Authorization, 'Bearer sk-test-123456')
+})
+
+test('附加信息接口 404 / 无订阅时静默为空，不影响余额 ok', async () => {
+  const impl = recordingFetch((url) => {
+    if (url.endsWith('/api/subscription/self')) return responseOf(404, { success: false })
+    return responseOf(200, { data: { quota: 100 } })
+  })
+  const runner = createRunner({ fetchImpl: impl })
+  const provider = makeProvider({
+    preset: 'newapi',
+    url: 'https://relay.example.com/api/user/self',
+    balancePath: 'data.quota',
+    extraUrl: 'https://relay.example.com/api/subscription/self',
+    extraFields: [{ label: '订阅剩余', path: 'data.subscriptions[].subscription.amount_total' }],
+  })
+  const result = await runner.queryProvider(provider)
+  assert.equal(result.ok, true)
+  assert.deepEqual(result.extra, [])
+})
+
+test('one-api 预设也走 autoUnit（/api/status），用量按 dashboard 求和', async () => {
+  const impl = recordingFetch((url) => {
+    if (url.endsWith('/api/status')) {
+      return responseOf(200, {
+        success: true,
+        data: { quota_per_unit: 500000, display_in_currency: true },
+      })
+    }
+    if (url.endsWith('/api/user/dashboard')) {
+      return responseOf(200, {
+        success: true,
+        data: [
+          { day: '2026-11-12', model_name: 'gpt-4o', request_count: 2, prompt_tokens: 100, completion_tokens: 50 },
+          { day: '2026-11-13', model_name: 'gpt-4o', request_count: 3, prompt_tokens: 200, completion_tokens: 25 },
+        ],
+      })
+    }
+    return responseOf(200, { success: true, data: { quota: 1000000 } })
+  })
+  const runner = createRunner({ fetchImpl: impl, now: () => 1700000000000 })
+  const result = await runner.queryProvider(makeProvider({
+    preset: 'oneapi',
+    autoUnit: true,
+    url: 'https://old.example.com/api/user/self',
+    balancePath: 'data.quota',
+    divisor: 500000,
+    usageUrl: 'https://old.example.com/api/user/dashboard',
+    usageArrayPath: 'data',
+    usageFields: [
+      { label: '近7天 Token', path: 'prompt_tokens + completion_tokens' },
+      { label: '近7天 请求', path: 'request_count' },
+    ],
+  }))
+  assert.equal(result.ok, true)
+  assert.equal(result.balance, 1000000)
+  assert.deepEqual(result.unit, { divisor: 500000, multiplier: 1, symbol: '$', decimals: 2 })
+  assert.deepEqual(result.usage, [
+    { label: '近7天 Token', value: 375 },
+    { label: '近7天 请求', value: 5 },
+  ])
+})
+
+test('balancePath 也支持 [] 通配求和', async () => {
+  const runner = createRunner({
+    fetchImpl: async () => responseOf(200, {
+      balances: [{ amount: 10 }, { amount: '2.5' }],
+    }),
+  })
+  const result = await runner.queryProvider(makeProvider({ balancePath: 'balances[].amount' }))
+  assert.equal(result.ok, true)
+  assert.equal(result.balance, 12.5)
+})
+
+test('detailPaths 也支持 [] 通配求和', async () => {
+  const runner = createRunner({
+    fetchImpl: async () => responseOf(200, {
+      data: { balance: 1, fees: [{ amount: 1 }, { amount: 2 }] },
+    }),
+  })
+  const result = await runner.queryProvider(makeProvider({
+    detailPaths: [{ label: '手续费', path: 'data.fees[].amount' }],
+  }))
+  assert.equal(result.ok, true)
+  assert.deepEqual(result.details, [{ label: '手续费', value: 3 }])
 })

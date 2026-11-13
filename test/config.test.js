@@ -108,7 +108,7 @@ test('validateProvider 接受完整合法草稿并补齐默认值', () => {
   assert.match(provider.id, /^p_[a-z0-9]{6,12}$/)
   assert.deepEqual(Object.keys(provider).sort(), [
     'authType', 'autoUnit', 'balanceOptional', 'balancePath', 'bodyText', 'currencyPath', 'decimals', 'detailPaths',
-    'divisor', 'enabled', 'headersText', 'id', 'loginUrl', 'method', 'multiplier',
+    'divisor', 'enabled', 'extraFields', 'extraUrl', 'headersText', 'id', 'loginUrl', 'method', 'multiplier',
     'name', 'preset', 'secret', 'secretHeader', 'secretParam', 'symbol', 'tokenHeader',
     'tokenPath', 'tokenPrefix', 'url', 'usageArrayPath', 'usageFields', 'usageMethod',
     'usageScale', 'usageUrl', 'username',
@@ -139,6 +139,8 @@ test('validateProvider 接受完整合法草稿并补齐默认值', () => {
   assert.deepEqual(provider.usageFields, [])
   assert.equal(provider.usageScale, false)
   assert.equal(provider.autoUnit, false)
+  assert.equal(provider.extraUrl, '')
+  assert.deepEqual(provider.extraFields, [])
 })
 
 test('validateProvider 丢弃未知字段、数字字符串转数字、decimals 取整', () => {
@@ -490,8 +492,8 @@ test('配置读写保留 autoUnit，旧配置缺失按 false', async (t) => {
 
 // ---------- v1.8 preset 枚举 ----------
 
-test('preset 枚举接受 8 个值，未知回落 custom', () => {
-  for (const preset of ['custom', 'deepseek', 'newapi', 'kimi', 'mimo', 'openrouter', 'openai-cost', 'anthropic-cost']) {
+test('preset 枚举接受 9 个值，未知回落 custom', () => {
+  for (const preset of ['custom', 'deepseek', 'newapi', 'oneapi', 'kimi', 'mimo', 'openrouter', 'openai-cost', 'anthropic-cost']) {
     const result = validateProvider(validDraft({ preset }))
     assert.equal(result.ok, true)
     assert.equal(result.provider.preset, preset)

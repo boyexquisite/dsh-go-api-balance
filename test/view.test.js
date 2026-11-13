@@ -76,6 +76,7 @@ function makeResult (id, overrides = {}) {
     decimals: 2,
     details: [{ label: '充值余额', value: 1000 }],
     usage: [],
+    extra: [],
     rawPreview: null,
     error: null,
     fetchedAt: FIXED_NOW,
@@ -350,7 +351,7 @@ test('words: 中英文案 key 齐全、值非空、长度在 UI 上限内', () =
       assert.ok([...label].length <= 200, `${locale}.fields.${key} 标签过长`)
     }
     assert.deepEqual(dictionary.presets.map((item) => item.value).sort(), [
-      'anthropic-cost', 'custom', 'deepseek', 'kimi', 'mimo', 'newapi', 'openai-cost', 'openrouter',
+      'anthropic-cost', 'custom', 'deepseek', 'kimi', 'mimo', 'newapi', 'oneapi', 'openai-cost', 'openrouter',
     ])
     for (const key of ['templateKimiSub', 'templateMimoSub', 'templateOpenrouterSub', 'templateOpenaiCostSub', 'templateAnthropicCostSub']) {
       assert.ok(dictionary[key].trim() !== '', key)
@@ -397,14 +398,15 @@ test('panelView: v2 根节点、无 minApp、自定义表单两页签与必填�
   assert.ok(JSON.stringify(view).includes('{7d}'), '用量地址 placeholder 带 {7d} 说明')
 })
 
-test('panelView: 添加向导出八种服务类型（list 行内 choose-template）', () => {
+test('panelView: 添加向导出九种服务类型（list 行内 choose-template）', () => {
   const view = panelView(freshState({ pickTemplate: true }), FULL_CAPS)
   assert.deepEqual(childrenTypes(view), ['emptyState', 'text', 'list', 'actions'])
   const list = view.children.find((child) => child.type === 'list')
-  assert.equal(list.items.length, 8)
+  assert.equal(list.items.length, 9)
   assert.deepEqual(list.items.map((item) => item.action), [
     { id: 'choose-template', args: { preset: 'deepseek' } },
     { id: 'choose-template', args: { preset: 'newapi' } },
+    { id: 'choose-template', args: { preset: 'oneapi' } },
     { id: 'choose-template', args: { preset: 'kimi' } },
     { id: 'choose-template', args: { preset: 'mimo' } },
     { id: 'choose-template', args: { preset: 'openrouter' } },
@@ -415,6 +417,7 @@ test('panelView: 添加向导出八种服务类型（list 行内 choose-template
   assert.deepEqual(list.items.map((item) => item.subtitle), [
     words('zh').templateDeepseekSub,
     words('zh').templateNewapiSub,
+    words('zh').templateOneapiSub,
     words('zh').templateKimiSub,
     words('zh').templateMimoSub,
     words('zh').templateOpenrouterSub,
@@ -1946,7 +1949,7 @@ test('draftForm: Kimi 区域默认 cn / global，MiMo 固定字段', () => {
   const mimo = draftForm(presetDraft('mimo'))
   assert.equal(mimo.preset, 'mimo')
   assert.equal(mimo.url, 'https://api.xiaomimimo.com/v1/platform/balance')
-  assert.equal(mimo.balancePath, 'balance_infos[0].total_available')
+  assert.equal(mimo.balancePath, 'balance_infos[0].cash_balance + balance_infos[0].gift_balance')
 })
 
 test('providerForm: 从 moonshot 域名反推 Kimi 区域', () => {
@@ -2044,8 +2047,8 @@ test('actions: save mimo 固定 url/字段，名称为空用默认名', async (t
   assert.equal(saved.preset, 'mimo')
   assert.equal(saved.name, '小米 MiMo')
   assert.equal(saved.url, 'https://api.xiaomimimo.com/v1/platform/balance')
-  assert.equal(saved.balancePath, 'balance_infos[0].total_available')
-  assert.deepEqual(saved.detailPaths.map((row) => row.label), ['现金', '赠送', '冻结'])
+  assert.equal(saved.balancePath, 'balance_infos[0].cash_balance + balance_infos[0].gift_balance')
+  assert.deepEqual(saved.detailPaths.map((row) => row.label), ['现金', '赠送', '冻结', '授信可用'])
   assert.equal(saved.secret, 'sk-mimo-key')
 })
 
@@ -2176,4 +2179,109 @@ test('actions: save 三个花费预设走 presetDraft 固定配置', async (t) =
   assert.equal(byPreset['anthropic-cost'].headersText, '{"anthropic-version":"2023-06-01"}')
   assert.equal(byPreset['anthropic-cost'].divisor, 100)
   assert.equal(byPreset['anthropic-cost'].secret, secrets['anthropic-cost'])
+})
+
+// ---------- v2.0 币种符号 / 附加信息 / 迁移 ----------
+
+test('unitOf：currencyPath 的币种代码决定符号，自动单位优先', () => {
+  const provider = makeProvider({ currencyPath: 'data.currency', symbol: '¥' })
+  assert.equal(unitOf(provider, makeResult('p', { currency: 'USD' })).symbol, '$')
+  assert.equal(unitOf(provider, makeResult('p', { currency: 'CNY' })).symbol, '¥')
+  assert.equal(unitOf(provider, makeResult('p', { currency: 'XYZ' })).symbol, '¥', '未知币种沿用符号')
+  assert.equal(unitOf(provider, makeResult('p', { currency: 'USD', unit: null })).divisor, 1)
+  assert.equal(
+    unitOf(provider, makeResult('p', {
+      currency: 'USD',
+      unit: { divisor: 500000, multiplier: 10, symbol: '🍪', decimals: 2 },
+    })).symbol,
+    '🍪',
+    '站点自动识别的单位优先于币种代码',
+  )
+  assert.equal(unitOf(makeProvider({ currencyPath: '' }), makeResult('p', { currency: 'USD' })).symbol, '¥')
+})
+
+test('面板：订阅附加信息显示为卡片一行 + 菜单信息行', () => {
+  const state = stateWithProvider()
+  const provider = state.config.providers[0]
+  provider.divisor = 500000
+  state.results[provider.id] = makeResult(provider.id, {
+    balance: 209786194,
+    extra: [
+      { label: '订阅剩余', value: 600000, kind: 'money' },
+      { label: '订阅到期', value: 1767225600, kind: 'date' },
+      { label: '订阅总量', value: 1000000, kind: 'money' },
+    ],
+  })
+  const view = panelView(state, FULL_CAPS)
+  const json = JSON.stringify(view)
+  assert.ok(json.includes('订阅剩余 ¥1.20'), '卡片上显示订阅剩余')
+  assert.ok(json.includes('订阅到期 2026-01-01'), '卡片上显示到期日期')
+
+  state.menuId = provider.id
+  const menuView = panelView(state, FULL_CAPS)
+  const menuJson = JSON.stringify(menuView)
+  assert.ok(menuJson.includes('订阅总量'))
+  assert.ok(menuJson.includes('订阅已用') === false)
+  assert.ok(menuJson.includes('编辑') && menuJson.includes('删除'))
+})
+
+test('ensureReady 迁移旧 new-api 配置：自动补 /api/subscription/self', async (t) => {
+  const home = await tempHome(t)
+  const dir = path.dirname(configPath(home))
+  await fs.mkdir(dir, { recursive: true })
+  await fs.writeFile(configPath(home), JSON.stringify({
+    v: 1,
+    providers: [{
+      id: 'p_oldsub01',
+      name: '旧中转',
+      preset: 'newapi',
+      url: 'https://old.example.com/api/user/self',
+      method: 'GET',
+      authType: 'bearer',
+      secret: 'token-123456',
+      balancePath: 'data.quota',
+      divisor: 500000,
+      symbol: '¥',
+      decimals: 2,
+      enabled: true,
+    }],
+    settings: {},
+  }), 'utf8')
+  const { ctx } = fakeHost()
+  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, {}) })
+  await store.ensureReady()
+  const provider = store.state.config.providers[0]
+  assert.equal(provider.extraUrl, 'https://old.example.com/api/subscription/self')
+  assert.equal(provider.extraFields.length, 4)
+  assert.equal(provider.extraFields[0].label, '订阅剩余')
+})
+
+test('actions: choose-template oneapi 保存后是 one-api 配置', async (t) => {
+  const home = await tempHome(t)
+  const { ctx } = fakeHost()
+  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, { data: { quota: 100 } }) })
+  await store.ensureReady()
+  await store.actions.add({}, { locale: 'zh-CN' })
+  await store.actions['choose-template']({}, { locale: 'zh-CN', value: { preset: 'oneapi' } })
+  const effects = await store.actions.save({}, {
+    locale: 'zh-CN',
+    value: {
+      values: {
+        'data.form.name': '',
+        'data.form.siteBase': 'https://legacy.example.com/v1',
+        'data.form.secret': 'token-abc',
+      },
+    },
+  })
+  assert.equal(effects.at(-1).text, '已保存')
+  const saved = (await loadConfig(configPath(home))).providers[0]
+  assert.equal(saved.preset, 'oneapi')
+  assert.equal(saved.name, 'one-api 中转')
+  assert.equal(saved.url, 'https://legacy.example.com/api/user/self')
+  assert.equal(saved.usageUrl, 'https://legacy.example.com/api/user/dashboard')
+  assert.equal(saved.autoUnit, true)
+  assert.deepEqual(saved.usageFields, [
+    { label: '近7天 Token', path: 'prompt_tokens + completion_tokens' },
+    { label: '近7天 请求', path: 'request_count' },
+  ])
 })

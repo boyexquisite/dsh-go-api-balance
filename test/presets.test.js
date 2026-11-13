@@ -3,10 +3,11 @@ import assert from 'node:assert/strict'
 import { PRESETS, presetDraft, presetOptions } from '../lib/presets.js'
 import { validateProvider } from '../lib/config.js'
 
-test('PRESETS 包含七个内置模板，文案符合 spec', () => {
+test('PRESETS 包含八个内置模板，文案符合 spec', () => {
   assert.deepEqual(PRESETS, [
     { id: 'deepseek', label: 'DeepSeek 官方' },
-    { id: 'newapi', label: 'new-api / one-api 中转' },
+    { id: 'newapi', label: 'new-api 中转' },
+    { id: 'oneapi', label: 'one-api 中转（旧站）' },
     { id: 'kimi', label: 'Kimi / Moonshot' },
     { id: 'mimo', label: '小米 MiMo' },
     { id: 'openrouter', label: 'OpenRouter' },
@@ -19,7 +20,8 @@ test('presetOptions 含自定义，label/value 成对且每次新建', () => {
   const options = presetOptions()
   assert.deepEqual(options, [
     { label: 'DeepSeek 官方', value: 'deepseek' },
-    { label: 'new-api / one-api 中转', value: 'newapi' },
+    { label: 'new-api 中转', value: 'newapi' },
+    { label: 'one-api 中转（旧站）', value: 'oneapi' },
     { label: 'Kimi / Moonshot', value: 'kimi' },
     { label: '小米 MiMo', value: 'mimo' },
     { label: 'OpenRouter', value: 'openrouter' },
@@ -28,7 +30,7 @@ test('presetOptions 含自定义，label/value 成对且每次新建', () => {
     { label: '自定义', value: 'custom' },
   ])
   options.pop()
-  assert.equal(presetOptions().length, 8)
+  assert.equal(presetOptions().length, 9)
 })
 
 test('deepseek 模板字段严格符合 spec', () => {
@@ -69,10 +71,9 @@ test('newapi 模板空 base 留空地址', () => {
   assert.equal(draft.multiplier, 1)
   assert.equal(draft.symbol, '¥')
   assert.equal(draft.decimals, 2)
-  assert.deepEqual(draft.detailPaths, [
-    { label: '已用额度', path: 'data.used_quota' },
-    { label: '订阅额度', path: 'data.subscription_quota' },
-  ])
+  assert.deepEqual(draft.detailPaths, [{ label: '已用额度', path: 'data.used_quota' }])
+  assert.equal(draft.extraUrl, '')
+  assert.deepEqual(draft.extraFields, [])
 })
 
 test('newapi 模板拼接 base 并去掉多余斜杠与空白', () => {
@@ -275,12 +276,13 @@ test('mimo 预设字段严格符合 spec', () => {
   assert.equal(draft.url, 'https://api.xiaomimimo.com/v1/platform/balance')
   assert.equal(draft.method, 'GET')
   assert.equal(draft.authType, 'bearer')
-  assert.equal(draft.balancePath, 'balance_infos[0].total_available')
+  assert.equal(draft.balancePath, 'balance_infos[0].cash_balance + balance_infos[0].gift_balance')
   assert.equal(draft.currencyPath, 'balance_infos[0].currency')
   assert.deepEqual(draft.detailPaths, [
     { label: '现金', path: 'balance_infos[0].cash_balance' },
     { label: '赠送', path: 'balance_infos[0].gift_balance' },
     { label: '冻结', path: 'balance_infos[0].frozen_balance' },
+    { label: '授信可用', path: 'balance_infos[0].credit_available' },
   ])
   assert.equal(draft.symbol, '¥')
   assert.equal(draft.divisor, 1)
@@ -294,7 +296,7 @@ test('mimo 草稿填密钥后可通过校验', () => {
   const result = validateProvider(draft)
   assert.equal(result.ok, true)
   assert.equal(result.provider.preset, 'mimo')
-  assert.equal(result.provider.balancePath, 'balance_infos[0].total_available')
+  assert.equal(result.provider.balancePath, 'balance_infos[0].cash_balance + balance_infos[0].gift_balance')
 })
 
 test('kimi / mimo 草稿每次返回新对象', () => {
@@ -305,12 +307,39 @@ test('kimi / mimo 草稿每次返回新对象', () => {
 
 // ---------- v1.9 OpenRouter / 花费预设 ----------
 
-test('newapi 预设明细含订阅额度', () => {
+test('newapi 预设订阅走独立接口 /api/subscription/self（v2.0 修正）', () => {
   const draft = presetDraft('newapi', { base: 'https://relay.example.com' })
-  assert.deepEqual(draft.detailPaths, [
-    { label: '已用额度', path: 'data.used_quota' },
-    { label: '订阅额度', path: 'data.subscription_quota' },
+  assert.deepEqual(draft.detailPaths, [{ label: '已用额度', path: 'data.used_quota' }])
+  assert.equal(draft.extraUrl, 'https://relay.example.com/api/subscription/self')
+  assert.deepEqual(draft.extraFields, [
+    {
+      label: '订阅剩余',
+      path: 'data.subscriptions[].subscription.amount_total - data.subscriptions[].subscription.amount_used',
+    },
+    { label: '订阅总量', path: 'data.subscriptions[].subscription.amount_total' },
+    { label: '订阅已用', path: 'data.subscriptions[].subscription.amount_used' },
+    { label: '订阅到期', path: 'data.subscriptions[0].subscription.end_time', kind: 'date' },
   ])
+})
+
+test('oneapi 预设：旧站余额 + /api/user/dashboard 近 7 天用量', () => {
+  const draft = presetDraft('oneapi', { base: 'https://old.example.com' })
+  assert.equal(draft.preset, 'oneapi')
+  assert.equal(draft.name, 'one-api 中转')
+  assert.equal(draft.url, 'https://old.example.com/api/user/self')
+  assert.equal(draft.balancePath, 'data.quota')
+  assert.deepEqual(draft.detailPaths, [{ label: '已用额度', path: 'data.used_quota' }])
+  assert.equal(draft.usageUrl, 'https://old.example.com/api/user/dashboard')
+  assert.equal(draft.usageArrayPath, 'data')
+  assert.deepEqual(draft.usageFields, [
+    { label: '近7天 Token', path: 'prompt_tokens + completion_tokens' },
+    { label: '近7天 请求', path: 'request_count' },
+  ])
+  assert.equal(draft.autoUnit, true)
+  const result = validateProvider({ ...draft, secret: 'token-123456' })
+  assert.equal(result.ok, true)
+  assert.equal(result.provider.preset, 'oneapi')
+  assert.equal(result.provider.usageFields[0].path, 'prompt_tokens + completion_tokens')
 })
 
 test('openrouter 预设字段严格符合 spec', () => {
@@ -375,7 +404,7 @@ test('anthropic-cost 预设：header 鉴权 + ISO 占位符 + 分→元 divisor 
   assert.equal(draft.name, 'Claude 花费')
   assert.equal(
     draft.url,
-    'https://api.anthropic.com/v1/organizations/cost_report?starting_at={month_start_iso}&bucket_width=1d',
+    'https://api.anthropic.com/v1/organizations/cost_report?starting_at={month_start_iso}&ending_at={now_iso}&bucket_width=1d&limit=31',
   )
   assert.equal(draft.authType, 'header')
   assert.equal(draft.secretHeader, 'x-api-key')

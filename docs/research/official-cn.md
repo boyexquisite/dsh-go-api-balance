@@ -218,3 +218,12 @@
 - Ace Data 计费 FAQ：https://docs.acedata.cloud/zh-Hans/faq/billing
 - new-api 源码：https://github.com/QuantumNous/new-api （controller/misc.go、controller/user.go、controller/usedata.go、router/api-router.go）
 - one-api 源码：https://github.com/songquanpeng/one-api/tree/v0.6.10 （controller/misc.go、controller/user.go、router/api.go、model/log.go）
+
+---
+
+## 2026-11-13 v2.0 修正
+
+- **new-api 订阅**：`/api/user/self` 不返回 `subscription_quota`（STA1N 实测）；订阅在 `GET /api/subscription/self`，字段 `data.subscriptions[].subscription.amount_total/amount_used`（quota 单位）。插件已改为附加请求。
+- **one-api 用量**：`GET /api/user/dashboard` 真实路由是 `/api/user/dashboard`（`selfRoute := userRoute.Group("/")`，`/dashboard` 与 `/self` 平级），固定近 7 天，字段 `request_count`/`quota`/`prompt_tokens`/`completion_tokens`。插件已拆出独立 one-api 预设。
+- **小米 MiMo**：`total_available = cash_balance + gift_balance + credit_available`，含授信额度；插件余额改为 `cash + gift`，授信单列明细。
+- **DeepSeek**：`currency` 可能是 `USD`（国际账号），插件按币种代码自动换 `$`。

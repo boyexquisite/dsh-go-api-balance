@@ -327,3 +327,12 @@
 - Z.ai / GLM：[devpack FAQ](https://docs.z.ai/devpack/faq)、[devpack Team Plan](https://docs.z.ai/devpack/teamplan.md)、[pi-glm-quota](https://www.npmjs.com/package/pi-glm-quota)、[hermes-quota-plugin zai.py](https://github.com/rarf/hermes-quota-plugin/blob/v2.8.2/quota_providers/zai.py)
 - new-api：[订阅计划管理](https://docs.newapi.pro/zh/docs/guide/feature-guide/admin/subscription)、[钱包与订阅](https://docs.newapi.ai/ja/docs/guide/feature-guide/user/wallet)、[AnyFast /api/user/self](https://docs.anyfast.ai/zh/guides/system-api/current-user-balance)、[QuotaBar NEWAPI_API](https://github.com/superpung/QuotaBar/blob/main/docs/NEWAPI_API.md)、[new-api 订阅 PR #2808](https://github.com/QuantumNous/new-api/pull/2808)
 - 社区聚合工具（交叉验证）：[CodexBar](https://github.com/steipete/CodexBar)、[OpenTokenUsage](https://github.com/PowerUserZ/OpenTokenUsage)、[check-llm-quota](https://pypi.org/project/check-llm-quota/)
+
+
+---
+
+## 2026-11-13 修正（v2.0 实现时核对源码）
+
+- **new-api 订阅不在 `/api/user/self` 里**：现行 new-api 的 `data` 没有 `subscription_quota` 字段（STA1N 实测 200，返回字段里没有）。订阅走独立路由 `GET /api/subscription/self`（[router/api-router.go](https://github.com/QuantumNous/new-api/blob/main/router/api-router.go)，`middleware.UserAuth`），返回 `{ data: { billing_preference, subscriptions: [{ subscription: { amount_total, amount_used, end_time, status, next_reset_time } }], all_subscriptions } }`；`amount_total` / `amount_used` 是 quota 单位（同 `/api/user/self` 的 `quota`）。
+- 插件 v2.0 已按此实现：订阅剩余 = `data.subscriptions[].subscription.amount_total - data.subscriptions[].subscription.amount_used`，用站点单位换算；没有订阅时接口返回空数组，订阅行不显示。
+- one-api 旧站没有订阅，也没有 `/api/data/self`；用量只能走 `/api/user/dashboard`（固定近 7 天，按 day+model 聚合的 `request_count`/`quota`/`prompt_tokens`/`completion_tokens`）。

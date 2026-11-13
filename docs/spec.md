@@ -98,7 +98,9 @@ export function providerToDraft(provider)                      // form 用：sec
 | `bodyText` | string | POST 请求体 JSON 文本；空串=无；≤ 4096；必须是 JSON（对象/数组） |
 | `balancePath` | string | 必填，JSON 取值路径（§4） |
 | `currencyPath` | string | 可选；取币种代码（如 `CNY`） |
-| `detailPaths` | `[{label,path}]` | ≤ 6 项；label 1–20 字；path 合法 |
+| `detailPaths` | `[{label,path,kind?}]` | ≤ 6 项；label 1–20 字；path 合法（§4 表达式）；kind 可选 `money`/`count`/`text`/`date` |
+| `extraUrl` | string | 可选；附加信息请求（如 new-api 订阅），http(s)，≤ 512 |
+| `extraFields` | `[{label,path,kind?}]` | ≤ 4 项；path 用 §4 表达式；kind 同上 |
 | `divisor` | number | > 0；默认 1；0.000001..1e12 |
 | `multiplier` | number | > 0；默认 1；0.000001..1e12 |
 | `symbol` | string | 显示货币符号；≤ 8；默认 `'¥'`；可空 |
@@ -135,6 +137,9 @@ export function providerToDraft(provider)                      // form 用：sec
   symbol: string,
   decimals: number,
   details: [{ label: string, value: number|string|null }],  // 按 detailPaths 取，取不到 null
+  usage: [{ label: string, value: number }],                // 用量（v1.1+），失败空数组
+  extra: [{ label: string, value: number, kind: string }],  // 附加信息（v2.0），失败空数组
+  unit: { divisor, multiplier, symbol, decimals } | null,   // 站点自动单位（v1.7+）
   rawPreview: string | null,     // 仅 preview=true 时给，JSON 文本，≤ 8192 字符
   error: string | null,          // 中文人话
   fetchedAt: number,             // epoch ms
@@ -150,6 +155,7 @@ export function providerToDraft(provider)                      // form 用：sec
 - `getByPath(obj, path)` → 命中返回值（可能是 `null`），未命中/非法返回 `undefined`；**不抛异常**。
 - `validatePath(path)` → boolean（合法：`^[A-Za-z_$][\w$]*(\[\d+\]|\.[A-Za-z_$][\w$]*)*$`，允许 `$.` 前缀）。
 - `pickNumber(value)` → 数字或 null：`number` 有限值直接要；字符串 trim 后能 `Number()` 且有限；否则 null。
+- **表达式（v2.0）**：`isExpression(path)` 判断是否含 `+`/`-`；`validateExpression(path)` 校验；`evalExpression(obj, expr)` 对「路径 ± 路径」求值（路径支持 `[]` 通配求和，数字字符串也认）。任一操作数取不到 → `null`。不使用 `eval`。
 
 ## 5. 取数（`lib/query.js`）
 
@@ -176,7 +182,8 @@ export async function queryAll(providers, { signal, timeoutMs, preview = false, 
 - 响应：读文本（≤ 256 KiB，超了截断）；非 2xx 映射成中文错误；JSON 解析失败 → `'返回的不是 JSON'`；`balancePath` 取不到 → `'解析不到余额字段，检查取值路径'`；数值解析失败 → `'余额不是数字'`。
 - HTTP 映射：401 `'密钥或令牌无效'`、403 `'没有权限访问这个接口'`、404 `'接口不存在，检查地址'`、429 `'请求太频繁，稍后再试'`、5xx `'对方服务出错（HTTP n）'`、网络异常 `'连不上接口，检查地址或网络'`、超时 `'请求超时'`、取消 `'已取消'`。
 - `currency`：`currencyPath` 命中且是字符串则用；否则用 `provider.symbol`。
-- `details`：每条 `detailPaths` 取值，取不到 `null`。
+- `details`：每条 `detailPaths` 取值，取不到 `null`；表达式路径用 `evalExpression`。
+- `extra`（v2.0）：`extraUrl` 非空且 `extraFields` 非空时，用同一鉴权再发一次 GET（`{...}` 占位符照常替换），按 `extraFields` 求值；失败/非 2xx/无字段一律静默返回 `[]`，不影响 `ok`/`error`。
 - `login` 鉴权：token 缓存在 runner 内 `Map`（key=provider.id+loginUrl+username）；没有缓存则 POST `loginUrl`（JSON `{username,password}`，`Content-Type: application/json`），必须 2xx 且 `tokenPath` 取到非空字符串，否则 `'登录失败，检查账号密码'`；主请求返回 401/403 时清缓存重试一次。
 - `balance`：`pickNumber(getByPath(json, balancePath))`；`null` → 失败。
 - `rawPreview`：仅 `preview` 时给，`JSON.stringify(json)` 截前 8192 字符。
@@ -186,8 +193,14 @@ export async function queryAll(providers, { signal, timeoutMs, preview = false, 
 
 ```js
 export const PRESETS = [
-  { id: 'deepseek', label: 'DeepSeek 官方', icon: 'deepseek'? （不用 icon） },
-  { id: 'newapi', label: 'new-api / one-api 中转' },
+  { id: 'deepseek', label: 'DeepSeek 官方' },
+  { id: 'newapi', label: 'new-api 中转' },
+  { id: 'oneapi', label: 'one-api 中转（旧站）' },
+  { id: 'kimi', label: 'Kimi / Moonshot' },
+  { id: 'mimo', label: '小米 MiMo' },
+  { id: 'openrouter', label: 'OpenRouter' },
+  { id: 'openai-cost', label: 'OpenAI 花费' },
+  { id: 'anthropic-cost', label: 'Claude 花费' },
 ]
 export function presetDraft(presetId, { base = '', token = '', rate = 1 } = {})
 // → 表单草稿（含 preset、name、url、authType、balancePath、currencyPath、detailPaths、
@@ -196,7 +209,9 @@ export function presetOptions() // → [{ label, value }] 给 UI 选项（含 cu
 ```
 
 - `deepseek`：`https://api.deepseek.com/user/balance`，GET，bearer，`balancePath='balance_infos[0].total_balance'`，`currencyPath='balance_infos[0].currency'`，明细 `充值余额 balance_infos[0].topped_up_balance`、`赠送余额 balance_infos[0].granted_balance`，`symbol='¥'`，`decimals=2`，name=`'DeepSeek'`。
-- `newapi`：`base` 去掉尾部 `/` 后拼 `/api/user/self`（base 空则留空让用户填），GET，bearer，`balancePath='data.quota'`，`divisor=500000`，`multiplier=rate`（默认 1），`symbol='¥'`，`decimals=2`，name=`'new-api 中转'`，明细 `已用额度 data.used_quota`。
+- `newapi`：`base` 去掉尾部 `/` 后拼 `/api/user/self`（base 空则留空让用户填），GET，bearer，`balancePath='data.quota'`，`divisor=500000`，`multiplier=rate`（默认 1），`symbol='¥'`，`decimals=2`，`autoUnit=true`，name=`'new-api 中转'`，明细 `已用额度 data.used_quota`，用量 `/api/data/self`（`{7d}`/`{now}`），附加信息 `/api/subscription/self`（订阅剩余/总量/已用/到期）。
+- `oneapi`：同上余额；用量走 `/api/user/dashboard`（固定近 7 天，`prompt_tokens + completion_tokens` 与 `request_count`），没有附加信息。
+- `mimo`：余额 `balance_infos[0].cash_balance + balance_infos[0].gift_balance`（不含授信），明细现金/赠送/冻结/授信可用。
 - `custom`：全空白草稿（`preset='custom'`, `symbol='¥'`, `decimals=2`, `divisor=1`, `multiplier=1`）。
 
 ## 7. 展示层（`lib/view.js` + `lib/format.js` + `lib/index.js`）
@@ -526,3 +541,32 @@ export function presetOptions() // → [{ label, value }] 给 UI 选项（含 cu
 - 卡片：`balance=null` 时余额显示 `—`、状态正常（不显示错误）；用量 metric 照常。
 - 菜单里追加**明细信息行**：`result.details` 里非空项作为不可点的 list 行（title=标签、trailing=值）放在编辑/删除上面，用于显示 newapi「订阅额度」；空/缺省过滤。
 - 其余（菜单/确认/autoUnit/刷新/预算/4KiB）不变；tests 同步。
+
+
+## 20. v2.0：单位与订阅修正、one-api 预设
+
+### 20.1 单位/数据修正
+
+- **DeepSeek**：`currencyPath` 返回的 ISO 币种代码（CNY/USD…）现在会决定显示符号（`¥`/`$`），国际账号不再错显 `¥`；站点自动单位优先。
+- **小米 MiMo**：余额由 `total_available` 改为 `cash_balance + gift_balance`（`total_available` 含授信额度，不等于自己的钱），明细补 `授信可用`。
+- **Claude 花费**：`cost_report` 默认只返回 7 个日桶，URL 补 `ending_at={now_iso}&limit=31`，否则本月花费只统计前 7 天。
+- **one-api**：新增独立预设（旧站模板），余额同 new-api，用量改用 `/api/user/dashboard`（旧站没有 `/api/data/self`）。
+- **new-api 订阅**：旧字段 `data.subscription_quota` 在现行 new-api 的 `/api/user/self` 里不存在；改为附加请求 `/api/subscription/self`，用表达式 `amount_total - amount_used` 算剩余。老配置在 `ensureReady` 时自动补该请求（只补缺，不改其它设置）。
+
+### 20.2 新增引擎能力
+
+- `lib/extract.js`：`isExpression` / `validateExpression` / `evalExpression`，支持「路径 ± 路径」与 `[]` 通配。
+- Provider 新增 `extraUrl` + `extraFields`（≤ 4）；Result 新增 `extra`。
+- `usageFields` / `balancePath` / `detailPaths` 均接受表达式。
+- 结果回来后 `updateView()`，保证卡片上的订阅行等静态内容及时出现。
+
+### 20.3 展示
+
+- 卡片：有 `extra` 时多一行「订阅剩余 … · 订阅到期 …」；菜单信息行追加订阅总量/已用/到期。
+- `formatDetailValue(provider, value, kind)` 支持 `money`/`count`/`text`/`date`。
+- `unitOf` 在无站点单位时按 `currencyPath` 的币种代码映射符号。
+
+### 20.4 测试
+
+- 306 项 `node --test` 全绿；检查器 0 error。
+- 真实接口验证：DeepSeek `¥270.08`；STA1N `🍪4,190.37`、近 7 天 Token 15.6 亿 / 请求 6,945，`/api/subscription/self` 200 空订阅 → 订阅行不显示。
