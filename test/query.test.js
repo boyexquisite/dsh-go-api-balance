@@ -1942,3 +1942,51 @@ test('不安全地址的用量/附加请求会被静默跳过', async () => {
   assert.deepEqual(result.extra, [])
   assert.equal(impl.calls.length, 1, '不应向 http 地址发请求')
 })
+
+// ---------- v0.4.0 订阅类服务（OpenCode Go / Command Code） ----------
+
+test('opencode-go：百分比转剩余，重置时间作为日期明细', async () => {
+  const impl = recordingFetch(() => responseOf(200, {
+    usage: {
+      rolling: { status: 'ok', percent: 52, resetsAt: '2026-11-24T03:00:00.000Z' },
+      weekly: { status: 'ok', percent: 20, resetsAt: '2026-11-24T00:00:00.000Z' },
+      monthly: { status: 'ok', percent: 61, resetsAt: '2026-12-01T00:00:00.000Z' },
+    },
+  }))
+  const runner = createRunner({ fetchImpl: impl })
+  const provider = validateProvider({ ...presetDraft('opencode-go'), secret: 'sk-open' }).provider
+  const result = await runner.queryProvider(provider)
+  assert.equal(result.ok, true)
+  assert.equal(result.balance, 48)
+  assert.deepEqual(result.usage, [
+    { label: '本周剩余%', value: 80 },
+    { label: '本月剩余%', value: 39 },
+  ])
+  assert.equal(result.details[0].label, '5小时重置')
+  assert.equal(result.details[0].value, '2026-11-24T03:00:00.000Z')
+  assert.equal(result.details[0].kind, 'date')
+})
+
+test('commandcode：月度剩余额度 + 5h/周剩余金额', async () => {
+  const impl = recordingFetch(() => responseOf(200, {
+    credits: {
+      monthlyCredits: 63.03,
+      monthlyCreditsGranted: 100,
+      windowLimits: {
+        fiveHour: { used: 0.59, cap: 14, resetAt: 1794000000000, exceeded: false },
+        weekly: { used: 0.59, cap: 35, resetAt: 1794500000000, exceeded: false },
+      },
+    },
+  }))
+  const runner = createRunner({ fetchImpl: impl })
+  const provider = validateProvider({ ...presetDraft('commandcode'), secret: 'user-key' }).provider
+  const result = await runner.queryProvider(provider)
+  assert.equal(result.ok, true)
+  assert.equal(result.balance, 63.03)
+  assert.deepEqual(result.usage, [
+    { label: '5小时剩余', value: 14 - 0.59 },
+    { label: '本周剩余', value: 35 - 0.59 },
+  ])
+  assert.deepEqual(result.details[0], { label: '本月额度', value: 100 })
+  assert.equal(result.details[1].kind, 'date')
+})

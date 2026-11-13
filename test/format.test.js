@@ -206,3 +206,14 @@ test('formatDetailValue 按 kind 区分金额/计数/日期/文本', () => {
   assert.equal(formatDetailValue(unit, null), '—')
   assert.equal(formatDetailValue(unit, '0.5'), '¥0.50')
 })
+
+test('formatDay 接受 ISO 字符串（订阅接口的 resetsAt）', () => {
+  assert.equal(formatDay('2026-11-24T03:00:00.000Z'), '2026-11-24')
+  assert.equal(formatDetailValue({ symbol: '%', divisor: 1, multiplier: 1, decimals: 0 }, '2026-11-24T03:00:00.000Z', 'date'), '2026-11-24')
+  assert.equal(formatDay('not-a-date'), '—')
+})
+
+test('formatAmount：百分比符号后置', () => {
+  assert.equal(formatAmount({ symbol: '%', decimals: 0, divisor: 1, multiplier: 1 }, 48), '48%')
+  assert.equal(formatAmount({ symbol: '%', decimals: 1, divisor: 1, multiplier: 1 }, -3.25), '-3.3%')
+})

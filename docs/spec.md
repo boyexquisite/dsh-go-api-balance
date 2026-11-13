@@ -201,6 +201,8 @@ export const PRESETS = [
   { id: 'openrouter', label: 'OpenRouter' },
   { id: 'openai-cost', label: 'OpenAI 花费' },
   { id: 'anthropic-cost', label: 'Claude 花费' },
+  { id: 'opencode-go', label: 'OpenCode Go（订阅）' },
+  { id: 'commandcode', label: 'Command Code（订阅）' },
 ]
 export function presetDraft(presetId, { base = '', token = '', rate = 1 } = {})
 // → 表单草稿（含 preset、name、url、authType、balancePath、currencyPath、detailPaths、
@@ -568,7 +570,7 @@ export function presetOptions() // → [{ label, value }] 给 UI 选项（含 cu
 
 ### 20.4 测试
 
-- 319 项 `node --test` 全绿；检查器 0 error。
+- 327 项 `node --test` 全绿；检查器 0 error。
 - 真实接口验证：DeepSeek `¥270.08`；STA1N `🍪4,190.37`、近 7 天 Token 15.6 亿 / 请求 6,945，`/api/subscription/self` 200 空订阅 → 订阅行不显示。
 
 
@@ -603,5 +605,29 @@ export function presetOptions() // → [{ label, value }] 给 UI 选项（含 cu
 
 ### 21.6 测试
 
-- 319 项 `node --test` 全绿；检查器 0 error。
+- 327 项 `node --test` 全绿；检查器 0 error。
 - 新增安全基线测试（`test/security.test.js`）：零依赖、无安装脚本、无遥测、清单无 wants；以及 https 限制、同源/跨域跳转、跳转次数、用量/附加不安全地址静默跳过、权限自愈、自定义附加信息落盘。
+
+
+## 22. v0.4.0：编码 Agent 订阅类预设
+
+### 22.1 引擎
+
+- 表达式支持**数字常量**：`100 - usage.rolling.percent`、`cap - used` 这类写法可直接作为余额/用量/明细路径；单段仍必须是普通路径。
+- `detailPaths` 支持 `kind`（`money`/`count`/`text`/`date`）并在 Result 里透传；`date` 的明细值可以是 epoch 秒/毫秒或 ISO 字符串（如 `resetsAt`），展示为 `YYYY-MM-DD`。
+- `%` 符号后置：`formatAmount({symbol:'%'}, 48)` → `48%`，便于展示订阅窗口百分比。
+
+### 22.2 新预设
+
+| 预设 | 接口 | 凭证 | 显示 |
+|---|---|---|---|
+| `opencode-go` | `GET https://opencode.ai/zen/go/v1/usage` | Bearer API Key | 卡片 = 滚动窗口剩余 %（`100 - usage.rolling.percent`）；用量 = 本周/本月剩余 %；明细 = 5h/周/月重置日期 |
+| `commandcode` | `GET https://api.commandcode.ai/alpha/billing/credits` | Bearer Provider API Key | 卡片 = `credits.monthlyCredits`（本月剩余 $）；用量 = 5h/周 `cap - used`（$）；明细 = 本月额度与 5h/周重置时间 |
+
+- 两者都是「订阅额度」不是余额，单位分别是 % 与 USD；不参与任何汇总。
+- Command Code 的 `/alpha/billing/*` 是官方 CLI 使用的 alpha 路由（无公开文档），站点改版可能失效；请求失败只影响该卡片，不显示错数。
+- OpenDesign 需要网页 Cookie + 两步请求（先 workspace，再 quota），且推理 key 不能查账单，插件不做。
+
+### 22.3 测试
+
+- 327 项 `node --test` 全绿；新增：数字常量表达式、订阅响应解析、日期明细、百分比格式化、两个预设的保存流程。

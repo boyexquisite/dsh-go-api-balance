@@ -1,7 +1,7 @@
 # dsh-go-api-balance
 
 给 **DSH Go 手机 App** 的原生「API 余额」面板：把任意 HTTP 接口的余额聚到一个面板里。
-内置 8 种服务模板（DeepSeek、new-api、one-api、Kimi、小米 MiMo、OpenRouter、OpenAI 花费、Claude 花费），其余服务完全自定义——填地址、密钥和余额字段路径就行。
+内置 10 种服务模板（DeepSeek、new-api、one-api、Kimi、小米 MiMo、OpenRouter、OpenAI 花费、Claude 花费、OpenCode Go、Command Code），其余服务完全自定义——填地址、密钥和余额字段路径就行。
 
 - **面板**：一家一块卡片（名称 / 余额 / 两个大号用量指标 / 状态），卡片右侧小箭头展开菜单（编辑 / 删除 / 充值·赠送·订阅等明细）；不同站货币不同，**不做总余额相加**。
 - **用量**：每家服务可选配一个「用量」请求（中转站显示近 7 天 Token 数与请求数；OpenRouter 显示今日/本月花费）。
@@ -50,10 +50,19 @@ dsh plugin --profile web add dsh-go-api-balance
 | OpenRouter | 剩余额度（没设消费限额时显示 —）、今日花费、本月花费 | `/api/v1/key` | API Key |
 | OpenAI 花费 | 本月花费（不是余额） | `/v1/organization/costs` | 组织 Admin key |
 | Claude 花费 | 本月花费（官方估算值，不是余额） | `/v1/organizations/cost_report` | Admin key |
+| OpenCode Go（订阅） | 5 小时窗口剩余 %（卡片）、本周/本月剩余 %、各窗口重置日期 | `/zen/go/v1/usage` | OpenCode Go API Key |
+| Command Code（订阅） | 本月剩余额度、5h/本周剩余金额、本月额度与重置时间 | `/alpha/billing/credits` | Command Code Provider API Key |
 
 ### 用「自定义」能接、但没内置的
 
 智谱 GLM（控制台内部接口，余额/充值/赠送/消费）、硅基流动（`/v1/user/info`，据公告 2026-08 已停服）、ModelScope 魔搭（魔粒余额）、MiniMax M Plan（`/v1/token_plan/remains`，字段未确认）、Ace Data（无余额 API）。这些接口不是官方公开文档或稳定性没保证，所以不让模板替你写死。
+
+### 订阅类补充
+
+- **OpenCode Go**：官方有 live usage 接口（`GET https://opencode.ai/zen/go/v1/usage`，Bearer），返回 5 小时 / 周 / 月三个窗口的已用百分比和重置时间；插件显示「剩余百分比」。
+- **Command Code**：官方 CLI 用的计费路由（`GET https://api.commandcode.ai/alpha/billing/credits`，Bearer Provider API Key），返回月度剩余额度与 5h/周滚动窗口；这些 alpha 路由没有公开文档，站点改版可能失效，失效时插件会报错而不是显示错数。
+- **OpenDesign**：只有网页 Cookie 方案（`amr-api.open-design.ai` 两次请求、要先取 workspace ID），没有 API key 鉴权；插件不支持两步请求，也不建议把账号 Cookie 存到手机插件里，所以不做。
+- 这类「编码 Agent 订阅」的额度不是钱：OpenCode 是百分比，Command Code 是美元额度，插件按各自单位显示，不和余额相加。
 
 ### 明确不支持的
 

@@ -336,3 +336,10 @@
 - **new-api 订阅不在 `/api/user/self` 里**：现行 new-api 的 `data` 没有 `subscription_quota` 字段（STA1N 实测 200，返回字段里没有）。订阅走独立路由 `GET /api/subscription/self`（[router/api-router.go](https://github.com/QuantumNous/new-api/blob/main/router/api-router.go)，`middleware.UserAuth`），返回 `{ data: { billing_preference, subscriptions: [{ subscription: { amount_total, amount_used, end_time, status, next_reset_time } }], all_subscriptions } }`；`amount_total` / `amount_used` 是 quota 单位（同 `/api/user/self` 的 `quota`）。
 - 插件 v2.0 已按此实现：订阅剩余 = `data.subscriptions[].subscription.amount_total - data.subscriptions[].subscription.amount_used`，用站点单位换算；没有订阅时接口返回空数组，订阅行不显示。
 - one-api 旧站没有订阅，也没有 `/api/data/self`；用量只能走 `/api/user/dashboard`（固定近 7 天，按 day+model 聚合的 `request_count`/`quota`/`prompt_tokens`/`completion_tokens`）。
+
+
+## 2026-11-13 追加（v0.4.0）：编码 Agent 订阅可以查的
+
+- **OpenCode Go**：官方 live usage 接口 `GET https://opencode.ai/zen/go/v1/usage`（Bearer），返回 `usage.rolling/weekly/monthly = { status, percent, resetsAt }`，percent 是**已用**百分比。来源：[opencode PR #16513](https://github.com/anomalyco/opencode/pull/16513)；社区解析脚本记录：https://github.com/grandamenium/cortextos/blob/c696ed2f3740cd8ba0152f45ae23b62d4ef236b5/scripts/opencode-usage.README.md
+- **Command Code**：官方 CLI 的计费路由（beta/alpha，无公开文档）`GET https://api.commandcode.ai/alpha/billing/credits`，Bearer Provider API Key；`credits.monthlyCredits`（本月剩余 $）、`credits.monthlyCreditsGranted`、`credits.windowLimits.fiveHour|weekly = { used, cap, resetAt(ms), exceeded }`。另有 `/alpha/billing/subscriptions`（planId、currentPeriodEnd）和 `/alpha/whoami?limits=1`（团队 orgId）。参考：https://github.com/rarf/hermes-quota-plugin/blob/v2.8.2/quota_providers/commandcode.py 、CodexBar 文档 https://github.com/steipete/codexbar/blob/main/docs/command-code.md
+- **OpenDesign**：没有 API key 可查的账单接口；CodexBar 的实现是网页 Cookie（`__Secure-better-auth.session_token`）+ 两次 GET：`/api/v1/workspaces/current` 拿 workspaceId，再 `/api/v1/workspaces/{id}/billing/coding-plan-usage`（带 `X-Vela-Workspace-Id`）。不公开、Cookie 会过期、推理 key 不能鉴权 → 插件不做。参考：https://github.com/steipete/codexbar/blob/main/docs/opendesign.md

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { PRESETS, presetDraft, presetOptions } from '../lib/presets.js'
 import { validateProvider } from '../lib/config.js'
 
-test('PRESETS 包含八个内置模板，文案符合 spec', () => {
+test('PRESETS 包含十个内置模板，文案符合 spec', () => {
   assert.deepEqual(PRESETS, [
     { id: 'deepseek', label: 'DeepSeek 官方' },
     { id: 'newapi', label: 'new-api 中转' },
@@ -13,6 +13,8 @@ test('PRESETS 包含八个内置模板，文案符合 spec', () => {
     { id: 'openrouter', label: 'OpenRouter' },
     { id: 'openai-cost', label: 'OpenAI 花费' },
     { id: 'anthropic-cost', label: 'Claude 花费' },
+    { id: 'opencode-go', label: 'OpenCode Go（订阅）' },
+    { id: 'commandcode', label: 'Command Code（订阅）' },
   ])
 })
 
@@ -27,10 +29,12 @@ test('presetOptions 含自定义，label/value 成对且每次新建', () => {
     { label: 'OpenRouter', value: 'openrouter' },
     { label: 'OpenAI 花费', value: 'openai-cost' },
     { label: 'Claude 花费', value: 'anthropic-cost' },
+    { label: 'OpenCode Go（订阅）', value: 'opencode-go' },
+    { label: 'Command Code（订阅）', value: 'commandcode' },
     { label: '自定义', value: 'custom' },
   ])
   options.pop()
-  assert.equal(presetOptions().length, 9)
+  assert.equal(presetOptions().length, 11)
 })
 
 test('deepseek 模板字段严格符合 spec', () => {
@@ -423,4 +427,46 @@ test('anthropic-cost 草稿可通过校验', () => {
   assert.equal(result.provider.secretHeader, 'x-api-key')
   assert.equal(result.provider.headersText, '{"anthropic-version":"2023-06-01"}')
   assert.equal(result.provider.divisor, 100)
+})
+
+// ---------- v0.4.0 订阅类预设 ----------
+
+test('opencode-go 预设：订阅窗口百分比，卡片显示滚动剩余', () => {
+  const draft = presetDraft('opencode-go')
+  assert.equal(draft.preset, 'opencode-go')
+  assert.equal(draft.name, 'OpenCode Go')
+  assert.equal(draft.url, 'https://opencode.ai/zen/go/v1/usage')
+  assert.equal(draft.authType, 'bearer')
+  assert.equal(draft.balancePath, '100 - usage.rolling.percent')
+  assert.deepEqual(draft.usageFields, [
+    { label: '本周剩余%', path: '100 - usage.weekly.percent' },
+    { label: '本月剩余%', path: '100 - usage.monthly.percent' },
+  ])
+  assert.equal(draft.symbol, '%')
+  assert.equal(draft.decimals, 0)
+  assert.equal(draft.usageScale, false)
+  assert.equal(draft.detailPaths[0].kind, 'date')
+  assert.equal(draft.detailPaths[0].path, 'usage.rolling.resetsAt')
+  const result = validateProvider({ ...draft, secret: 'sk-test' })
+  assert.equal(result.ok, true)
+  assert.equal(result.provider.decimals, 0)
+  assert.equal(result.provider.detailPaths[0].kind, 'date')
+})
+
+test('commandcode 预设：月度剩余额度 + 5h/周剩余金额', () => {
+  const draft = presetDraft('commandcode')
+  assert.equal(draft.preset, 'commandcode')
+  assert.equal(draft.name, 'Command Code')
+  assert.equal(draft.url, 'https://api.commandcode.ai/alpha/billing/credits')
+  assert.equal(draft.balancePath, 'credits.monthlyCredits')
+  assert.equal(draft.usageFields[0].path, 'credits.windowLimits.fiveHour.cap - credits.windowLimits.fiveHour.used')
+  assert.equal(draft.usageFields[1].path, 'credits.windowLimits.weekly.cap - credits.windowLimits.weekly.used')
+  assert.equal(draft.usageScale, true)
+  assert.equal(draft.symbol, '$')
+  assert.equal(draft.decimals, 2)
+  assert.deepEqual(draft.detailPaths.map((row) => row.label), ['本月额度', '5小时重置', '本周重置'])
+  assert.equal(draft.detailPaths[1].kind, 'date')
+  const result = validateProvider({ ...draft, secret: 'user-test' })
+  assert.equal(result.ok, true)
+  assert.equal(result.provider.usageFields[0].path, draft.usageFields[0].path)
 })

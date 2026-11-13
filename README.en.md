@@ -1,8 +1,8 @@
 # dsh-go-api-balance
 
 Native **API balance** panel for the **DSH Go** phone app: collect the balances of any HTTP
-endpoint into one panel. Eight built-in templates (DeepSeek, new-api, one-api, Kimi, Xiaomi MiMo,
-OpenRouter, OpenAI spend, Claude spend); everything else is a custom "service": URL + key/token +
+endpoint into one panel. Ten built-in templates (DeepSeek, new-api, one-api, Kimi, Xiaomi MiMo,
+OpenRouter, OpenAI spend, Claude spend, OpenCode Go, Command Code); everything else is a custom "service": URL + key/token +
 JSON field paths.
 
 - **Panel**: one card per service (name / balance / two large usage metrics / status). The chevron
@@ -58,6 +58,8 @@ supported: `a + b`, `a - b` (e.g. MiMo cash + gift, subscription total - used).
 | OpenRouter | remaining limit (— when no key limit), today and month spend | `/api/v1/key` | API key |
 | OpenAI spend | month spend only (not a balance) | `/v1/organization/costs` | org Admin key |
 | Claude spend | month spend only (official estimate, not a balance) | `/v1/organizations/cost_report` | Admin key |
+| OpenCode Go (subscription) | 5h window remaining % (card), weekly/monthly remaining %, reset dates | `/zen/go/v1/usage` | OpenCode Go API key |
+| Command Code (subscription) | monthly credits left, 5h/weekly money left, allowance and resets | `/alpha/billing/credits` | Command Code Provider API key |
 
 Custom-only (no built-in template, endpoints not officially documented / unstable): Zhipu GLM,
 SiliconFlow (reported retired 2026-08), ModelScope magicubes, MiniMax M Plan, Ace Data.

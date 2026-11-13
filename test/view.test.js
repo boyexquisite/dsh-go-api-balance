@@ -351,7 +351,7 @@ test('words: 中英文案 key 齐全、值非空、长度在 UI 上限内', () =
       assert.ok([...label].length <= 200, `${locale}.fields.${key} 标签过长`)
     }
     assert.deepEqual(dictionary.presets.map((item) => item.value).sort(), [
-      'anthropic-cost', 'custom', 'deepseek', 'kimi', 'mimo', 'newapi', 'oneapi', 'openai-cost', 'openrouter',
+      'anthropic-cost', 'commandcode', 'custom', 'deepseek', 'kimi', 'mimo', 'newapi', 'oneapi', 'openai-cost', 'opencode-go', 'openrouter',
     ])
     for (const key of ['templateKimiSub', 'templateMimoSub', 'templateOpenrouterSub', 'templateOpenaiCostSub', 'templateAnthropicCostSub']) {
       assert.ok(dictionary[key].trim() !== '', key)
@@ -398,11 +398,11 @@ test('panelView: v2 根节点、无 minApp、自定义表单两页签与必填�
   assert.ok(JSON.stringify(view).includes('{7d}'), '用量地址 placeholder 带 {7d} 说明')
 })
 
-test('panelView: 添加向导出九种服务类型（list 行内 choose-template）', () => {
+test('panelView: 添加向导出十一种服务类型（list 行内 choose-template）', () => {
   const view = panelView(freshState({ pickTemplate: true }), FULL_CAPS)
   assert.deepEqual(childrenTypes(view), ['emptyState', 'text', 'list', 'actions'])
   const list = view.children.find((child) => child.type === 'list')
-  assert.equal(list.items.length, 9)
+  assert.equal(list.items.length, 11)
   assert.deepEqual(list.items.map((item) => item.action), [
     { id: 'choose-template', args: { preset: 'deepseek' } },
     { id: 'choose-template', args: { preset: 'newapi' } },
@@ -412,6 +412,8 @@ test('panelView: 添加向导出九种服务类型（list 行内 choose-template
     { id: 'choose-template', args: { preset: 'openrouter' } },
     { id: 'choose-template', args: { preset: 'openai-cost' } },
     { id: 'choose-template', args: { preset: 'anthropic-cost' } },
+    { id: 'choose-template', args: { preset: 'opencode-go' } },
+    { id: 'choose-template', args: { preset: 'commandcode' } },
     { id: 'choose-template', args: { preset: 'custom' } },
   ])
   assert.deepEqual(list.items.map((item) => item.subtitle), [
@@ -423,6 +425,8 @@ test('panelView: 添加向导出九种服务类型（list 行内 choose-template
     words('zh').templateOpenrouterSub,
     words('zh').templateOpenaiCostSub,
     words('zh').templateAnthropicCostSub,
+    words('zh').templateOpencodeSub,
+    words('zh').templateCommandcodeSub,
     words('zh').templateCustomSub,
   ])
   assert.deepEqual(list.items.map((item) => item.title), words('zh').presets.map((item) => item.label))
@@ -2337,4 +2341,61 @@ test('actions: 自定义服务可保存附加信息字段与表达式，明文 h
   })
   assert.equal(blocked.type, 'toast')
   assert.match(blocked.text, /https/)
+})
+
+// ---------- v0.4.0 订阅类预设展示 ----------
+
+test('OpenCode Go：卡片显示剩余百分比，菜单显示重置日期', () => {
+  const state = freshState()
+  const provider = {
+    ...makeProvider(),
+    id: 'p_open00001',
+    name: 'OpenCode Go',
+    preset: 'opencode-go',
+    url: 'https://opencode.ai/zen/go/v1/usage',
+    balancePath: '100 - usage.rolling.percent',
+    symbol: '%',
+    decimals: 0,
+    detailPaths: [{ label: '5小时重置', path: 'usage.rolling.resetsAt', kind: 'date' }],
+    usageFields: [{ label: '本周剩余%', path: '100 - usage.weekly.percent' }],
+  }
+  state.config.providers.push(provider)
+  state.results[provider.id] = makeResult(provider.id, {
+    balance: 48,
+    currency: '%',
+    symbol: '%',
+    decimals: 0,
+    details: [{ label: '5小时重置', value: '2026-11-24T03:00:00.000Z', kind: 'date' }],
+    usage: [{ label: '本周剩余%', value: 80 }],
+  })
+  const cards = panelData(state, FULL_CAPS).cards
+  assert.equal(cards[0].balance, '48%')
+  assert.equal(cards[0].usage0.value, '80')
+  state.menuId = provider.id
+  const json = JSON.stringify(panelView(state, FULL_CAPS))
+  assert.ok(json.includes('5小时重置'))
+  assert.ok(json.includes('2026-11-24'))
+})
+
+test('actions: save opencode-go / commandcode 走固定预设', async (t) => {
+  const home = await tempHome(t)
+  const { ctx } = fakeHost()
+  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, { usage: {} }) })
+  await store.ensureReady()
+  for (const [preset, key] of [['opencode-go', 'sk-open'], ['commandcode', 'user-key']]) {
+    await store.actions.add({}, { locale: 'zh-CN' })
+    await store.actions['choose-template']({}, { locale: 'zh-CN', value: { preset } })
+    const effects = await store.actions.save({}, {
+      locale: 'zh-CN',
+      value: { values: { 'data.form.name': '', 'data.form.secret': key } },
+    })
+    assert.equal(effects.at(-1).text, '已保存')
+  }
+  const saved = (await loadConfig(configPath(home))).providers
+  assert.equal(saved[0].preset, 'opencode-go')
+  assert.equal(saved[0].symbol, '%')
+  assert.equal(saved[0].balancePath, '100 - usage.rolling.percent')
+  assert.equal(saved[1].preset, 'commandcode')
+  assert.equal(saved[1].url, 'https://api.commandcode.ai/alpha/billing/credits')
+  assert.equal(saved[1].symbol, '$')
 })
