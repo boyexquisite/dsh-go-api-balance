@@ -783,3 +783,13 @@ test('请求头名称/值做字符集校验：拒绝空格、换行和请求库�
   }))
   assert.equal(ok.ok, true, JSON.stringify(ok.errors))
 })
+
+test('请求头值只接受可打印 ASCII：中文/emoji 提前拒绝，Basic/query 不受影响', () => {
+  expectError(validDraft({ headersText: '{"X-Note":"中文"}' }), 'headersText', /ASCII/)
+  expectError(validDraft({ tokenPrefix: 'Bearer 中文' }), 'tokenPrefix', /ASCII/)
+  expectError(validDraft({ secret: 'sk-中文' }), 'secret', /ASCII/)
+  const basic = validateProvider(validDraft({ authType: 'basic', username: '用户', secret: '密码' }))
+  assert.equal(basic.ok, true, JSON.stringify(basic.errors))
+  const query = validateProvider(validDraft({ authType: 'query', secret: 'sk-中文' }))
+  assert.equal(query.ok, true, JSON.stringify(query.errors))
+})

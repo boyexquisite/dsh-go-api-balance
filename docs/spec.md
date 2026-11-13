@@ -780,7 +780,9 @@ export function presetOptions() // → [{ label, value }] 给 UI 选项（含 cu
 - **卡片状态**：非当天结果显示日期（`MM-DD HH:mm`），不再把几天前的缓存显示成「今天 09:12」。
 - **kind 稳定**：自定义明细/附加字段按 path 优先找回 kind，改标签不再把 date/count 变成 money。
 - **旧用量配置兼容**：`usageArrayPath` 为空且普通路径取不到时，回退旧版自动找数组（顶层数组 → data 数组 → 第一个数组），v1.1 配置不静默丢用量。
+- **刷新 toast**：成功/失败分开报（「已更新 N 家 · M 家失败」），不再把失败算成已更新。
+- **刷新调度**：保存时若后台刷新在途，不再额外多刷一轮；删除服务中止在途手动刷新后，会为剩余服务补一轮。
 
 ### 30.3 测试
 
-- 366 项全绿、checker 0 error；新增：junk status 单位回退、usage 自动数组、header 校验、非法 header 文案、登录 4xx/5xx/跨域、密钥不入 panelData、中止在途刷新、dispose 强制落盘、预设字段迁移、kind 保活、截断提示、卡片日期。
+- 370 项全绿、checker 0 error；新增：junk status 单位回退、usage 自动数组、header 校验、非法 header 文案、登录 4xx/5xx/跨域、密钥不入 panelData、中止在途刷新、dispose 强制落盘、预设字段迁移、kind 保活、截断提示、卡片日期。

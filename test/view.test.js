@@ -3387,3 +3387,63 @@ test('手动刷新 toast 分开报成功/失败，不把失败算成已更新', 
   assert.equal(toast.text, '已更新 0 家 · 1 家失败')
   store.dispose()
 })
+
+test('保存时后台刷新在途只补一轮，不重复刷', async (t) => {
+  const home = await tempHome(t)
+  const provider = makeProvider({ id: 'p_one00001', preset: 'custom', url: 'https://one.example.com/b', balancePath: 'data.q' })
+  await saveConfig({ v: 1, providers: [provider], settings: { refreshOnOpen: true, timeoutMs: 12000 } }, configPath(home))
+  let calls = 0
+  const { ctx, regs } = fakeHost()
+  const store = apply(ctx, {
+    home,
+    now: () => FIXED_NOW,
+    fetchImpl: async () => {
+      calls += 1
+      await new Promise((resolve) => setTimeout(resolve, 80))
+      return response(200, { data: { q: 1 } })
+    },
+  })
+  await store.ensureReady()
+  const cancel = regs.panel.data({}, () => {}, { protocol: 1, locale: 'zh-CN' })
+  await waitFor(() => calls === 1)
+  await store.actions['card-edit']({}, { locale: 'zh-CN', value: { id: provider.id } })
+  await store.actions.save({}, { locale: 'zh-CN', value: { values: { 'data.form.name': '改名', 'data.form.secret': '' } } })
+  await new Promise((resolve) => setTimeout(resolve, 400))
+  assert.equal(calls, 2, `保存后应只有一轮补刷，实际 ${calls} 次请求`)
+  cancel()
+  store.dispose()
+})
+
+test('删除服务中止在途手动刷新后，会给剩余服务补一轮', async (t) => {
+  const home = await tempHome(t)
+  const providers = ['one', 'two'].map((host, index) => makeProvider({
+    id: `p_${host}0001`,
+    name: host,
+    preset: 'custom',
+    url: `https://${host}.example.com/balance`,
+    balancePath: 'data.q',
+    detailPaths: [],
+  }))
+  await saveConfig({ v: 1, providers, settings: { refreshOnOpen: false, timeoutMs: 12000 } }, configPath(home))
+  const calls = []
+  const { ctx } = fakeHost()
+  const store = apply(ctx, {
+    home,
+    now: () => FIXED_NOW,
+    fetchImpl: async (url) => {
+      calls.push(url)
+      await new Promise((resolve) => setTimeout(resolve, 80))
+      return response(200, { data: { q: 1 } })
+    },
+  })
+  await store.ensureReady()
+  const pending = store.actions.refresh({}, { locale: 'zh-CN' })
+  const promise = pending.result()
+  await waitFor(() => calls.length >= 2)
+  await store.actions['card-delete']({}, { locale: 'zh-CN', value: { id: providers[1].id } })
+  await store.actions['card-delete-confirm']({}, { locale: 'zh-CN', value: { id: providers[1].id } })
+  await promise
+  await new Promise((resolve) => setTimeout(resolve, 400))
+  assert.ok(calls.filter((url) => url.includes('one.example.com')).length >= 2, `剩余服务没补刷：${calls.join(',')}`)
+  store.dispose()
+})

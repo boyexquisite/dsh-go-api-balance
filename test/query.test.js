@@ -2270,3 +2270,9 @@ test('非法请求头由 fetch 抛出时给出可排查的文案', async () => {
   const result = await createRunner({ fetchImpl: impl }).queryProvider(makeProvider())
   assert.equal(result.error, '请求头或令牌格式不合法，检查自定义请求头')
 })
+
+test('fetch 的 ByteString 错误也映射成请求头文案', async () => {
+  const impl = async () => { throw new TypeError('Cannot convert argument to a ByteString because the character at index 3 has a value of 20013.') }
+  const result = await createRunner({ fetchImpl: impl }).queryProvider(makeProvider())
+  assert.equal(result.error, '请求头或令牌格式不合法，检查自定义请求头')
+})
