@@ -1,5 +1,22 @@
 # Changelog / 更新日志
 
+## 0.7.1
+
+### 中文
+
+- **手动刷新与保存并发**：手动刷新期间保存/删除服务，旧结果会被丢弃（按配置版本号），由后台刷新按新配置补一次；之前只有后台刷新做了这个保护。
+- **响应更稳**：`Content-Length` 超限时直接取消 body 再报「响应太大」，不把连接挂着；远端返回的货币代码/符号、text/date 明细文本都限制长度（≤200 字符/符号 ≤8），usage 数组最多处理 5000 行，避免恶意或异常接口撑大视图/缓存、拖慢 CPU。
+- **编辑旧值截断有提示**：旧配置字段超过表单上限被截断时，表单顶部会提示「有旧字段被截断，保存前请检查」，不再静默。
+- 关闭面板时一并收起菜单和删除确认；dispose 后不再 emit 或写状态；清理 `stripEnabled` 等最后的状态条遗留字段和未用代码。
+- 测试 338 项全绿、检查器 0 error。
+
+### English
+
+- Fixed a manual-refresh/save race: results from a manual refresh are discarded if the config changed meanwhile (revision check), and a background refresh re-fetches with the new config.
+- Hardened response handling: an oversized `Content-Length` cancels the body before reporting "响应太大"; remote currency codes/symbols and text/date detail strings are length-capped (200 chars / 8 chars) and usage rows are capped at 5000, so abnormal endpoints cannot bloat the view/cache or burn CPU.
+- Editing a config whose old values exceed the form limits now shows a "values were truncated, check before saving" warning instead of silently clipping.
+- Closing the panel also collapses the menu and delete confirmation; `dispose` no longer emits or writes state; removed the last `stripEnabled` remnants and unused code.
+
 ## 0.7.0
 
 ### 中文

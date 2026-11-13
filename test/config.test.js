@@ -81,7 +81,7 @@ test('defaultConfig / defaultSettings 结构正确且每次新建', () => {
   assert.deepEqual(a, {
     v: 1,
     providers: [],
-    settings: { stripEnabled: true, refreshOnOpen: true, timeoutMs: 12000 },
+    settings: { refreshOnOpen: true, timeoutMs: 12000 },
   })
   assert.notEqual(a.providers, b.providers)
   assert.notEqual(a.settings, b.settings)
@@ -610,12 +610,12 @@ test('saveConfig 写前 normalize（版本、设置范围、providers 上限）'
   await saveConfig({
     v: 99,
     providers: [null, 'x', ...providers],
-    settings: { stripEnabled: 'false', refreshOnOpen: 0, timeoutMs: 1 },
+    settings: { refreshOnOpen: 0, timeoutMs: 1 },
   }, configPath(home))
   const loaded = await loadConfig(configPath(home))
   assert.equal(loaded.v, 1)
   assert.equal(loaded.providers.length, 24)
-  assert.deepEqual(loaded.settings, { stripEnabled: false, refreshOnOpen: false, timeoutMs: 4000 })
+  assert.deepEqual(loaded.settings, { refreshOnOpen: false, timeoutMs: 4000 })
 })
 
 test('loadConfig 文件不存在时返回默认配置且不创建文件', async (t) => {
@@ -670,8 +670,8 @@ test('loadConfig 对缺失字段的 provider 补齐默认值', async (t) => {
   assert.equal(provider.decimals, 2)
   assert.equal(provider.divisor, 1)
   assert.equal(provider.enabled, true)
-  assert.equal(loaded.settings.stripEnabled, true)
   assert.equal(loaded.settings.timeoutMs, 20000)
+  assert.equal(Object.hasOwn(loaded.settings, 'stripEnabled'), false, '状态条字段已移除')
 })
 
 // ---------- results 缓存 ----------
@@ -690,7 +690,6 @@ test('results 缓存读写往返，缺失文件返回空缓存', async (t) => {
         symbol: '¥',
         decimals: 2,
         details: [],
-        rawPreview: null,
         error: null,
         fetchedAt: 1700000000000,
       },

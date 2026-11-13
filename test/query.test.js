@@ -2034,3 +2034,63 @@ test('登录 token 缓存按密码隔离：改密码后会重新登录', async (
   await runner.queryProvider({ ...base, secret: 'pw-2' })
   assert.equal(logins, 3, 'clearTokenCache 后重新登录')
 })
+
+test('Content-Length 声明超限：直接拒绝并取消 body，不读内容', async () => {
+  let canceled = false
+  let pulled = 0
+  const body = new ReadableStream({
+    pull (controller) {
+      pulled += 1
+      controller.enqueue(new Uint8Array(1024))
+    },
+    cancel () { canceled = true },
+  })
+  const response = {
+    status: 200,
+    ok: true,
+    body,
+    headers: new Headers({ 'content-length': String(4 * 1024 * 1024) }),
+    text: async () => { throw new Error('no text') },
+  }
+  const result = await createRunner({ fetchImpl: async () => response }).queryProvider(makeProvider())
+  assert.equal(result.ok, false)
+  assert.equal(result.error, '响应太大')
+  assert.equal(canceled, true)
+  assert.ok(pulled <= 1, `body 最多预拉一次，实际 ${pulled}`)
+})
+
+test('远端字符串收口：货币符号/明细/附加文本都有长度上限', async () => {
+  const long = 'x'.repeat(500)
+  const impl = recordingFetch((url) => {
+    if (url.endsWith('/api/status')) {
+      return responseOf(200, { data: { quota_display_type: 'CUSTOM', display_in_currency: true, custom_currency_symbol: long, quota_per_unit: 500000 } })
+    }
+    if (url.includes('/extra')) return responseOf(200, { data: { msg: long } })
+    return responseOf(200, { data: { balance: 1, note: long } })
+  })
+  const runner = createRunner({ fetchImpl: impl })
+  const result = await runner.queryProvider(makeProvider({
+    preset: 'newapi',
+    autoUnit: true,
+    url: 'https://relay.example.com/api/user/self',
+    detailPaths: [{ label: '备注', path: 'data.note', kind: 'text' }],
+    extraUrl: 'https://relay.example.com/extra',
+    extraFields: [{ label: '信息', path: 'data.msg', kind: 'text' }],
+  }))
+  assert.equal(result.ok, true)
+  assert.ok([...result.unit.symbol].length <= 8, `symbol ${result.unit.symbol}`)
+  assert.ok([...result.details[0].value].length <= 200)
+  assert.ok([...result.extra[0].value].length <= 200)
+})
+
+test('usage 数组行数有上限，避免远端大数组把 CPU 拖死', async () => {
+  const rows = Array.from({ length: 10000 }, () => ({ value: 1 }))
+  const impl = recordingFetch(() => responseOf(200, { data: { balance: 1 }, rows }))
+  const runner = createRunner({ fetchImpl: impl })
+  const result = await runner.queryProvider(makeProvider({
+    usageArrayPath: 'rows',
+    usageFields: [{ label: '数量', path: 'value' }],
+  }))
+  assert.equal(result.ok, true)
+  assert.deepEqual(result.usage, [{ label: '数量', value: 5000 }])
+})

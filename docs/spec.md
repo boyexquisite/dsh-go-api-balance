@@ -709,3 +709,14 @@ export function presetOptions() // → [{ label, value }] 给 UI 选项（含 cu
 - 删除 composer.strip 贡献与注册（状态条恒为空）、`stripData`/`formatStripText`/`STRIP_MAX_CHARS`。
 - 删除 `test` 动作、`state.test`、rawPreview 预览链路、`redactPreview` 及相关文案。
 - 已知限制：App 表单 4 KiB 硬上限对「整份表单都用中文填满」仍不成立；README/spec 已注明，并有常见中英混用预算测试。
+
+## 28. v0.7.1：复审补丁
+
+> 0.7.0 全量复审后的小补丁（功能性/资源边界），不改变对外功能。
+
+- 手动刷新也捕获 `configRevision`：请求期间配置变化则丢弃结果并触发后台补刷（此前只有后台刷新有这个保护）。
+- `Content-Length` 超限拒绝前先 `body.cancel()`，避免连接悬挂。
+- 远端字符串收口：`currency` ≤16、自定义货币符号 ≤8、detail/extra 的 text/date 值 ≤200 字符（并去掉控制字符）；`usageArrayPath` 命中的数组最多处理 5000 行。
+- 编辑预填超长值截断时 `form.clipped=true`，视图顶部提示 `formClipWarn`。
+- 面板最后一个订阅者离开时同时清 `menuId`/`confirmDelete`；`ensureReady`/`panelFeed` 在 dispose 后不再 emit；删除 `stripEnabled` 配置残留与 format/view 未用符号。
+- 测试：338 项全绿，check 0 error。

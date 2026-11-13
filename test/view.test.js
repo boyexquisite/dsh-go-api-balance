@@ -2724,7 +2724,7 @@ test('24 家长名称服务：v2 patch 数据不超过 16 KiB', () => {
   assert.ok(Buffer.byteLength(JSON.stringify(data)) <= 16384, `patch ${Buffer.byteLength(JSON.stringify(data))} 字节`)
 })
 
-test('编辑预填：超过当前 maxLength 的旧值会被截断', () => {
+test('编辑预填：超过当前 maxLength 的旧值会被截断并给出提示', () => {
   const provider = makeProvider({
     preset: 'custom',
     detailPaths: Array.from({ length: 6 }, (_, index) => ({ label: `明细${index}`, path: 'x'.repeat(250) })),
@@ -2732,6 +2732,13 @@ test('编辑预填：超过当前 maxLength 的旧值会被截断', () => {
   })
   const form = providerForm(provider)
   assert.ok([...form.detailText].length <= FORM_LIMITS.detailText)
+  assert.equal(form.clipped, true)
+  const state = freshState({ formOpen: true, form })
+  const json = JSON.stringify(panelView(state, FULL_CAPS))
+  assert.ok(json.includes('已截断显示'), '要提示用户旧值被截断')
+
+  const short = providerForm(makeProvider({ preset: 'custom', detailPaths: [{ label: '充值', path: 'data.x' }] }))
+  assert.equal(short.clipped, false)
 })
 
 test('dispose 后动作不再发起请求', async (t) => {
@@ -2796,4 +2803,46 @@ test('4 KiB 表单预算：常见中英混用的长填法仍在上限内', () =>
   }
   const bytes = Buffer.byteLength(JSON.stringify(values))
   assert.ok(bytes < 4096, `常见中英混用提交 ${bytes} 字节`)
+})
+
+test('手动刷新与保存并发：旧的刷新结果丢弃，新配置由后台补刷', async (t) => {
+  const home = await tempHome(t)
+  const provider = makeProvider({ url: 'https://old.example.com/balance', preset: 'custom' })
+  await saveConfig({ v: 1, providers: [provider], settings: { refreshOnOpen: false, timeoutMs: 12000 } }, configPath(home))
+  const calls = []
+  let releaseOld
+  const oldResponse = new Promise((resolve) => { releaseOld = resolve })
+  const impl = async (url) => {
+    calls.push(url)
+    if (url.includes('old.example.com')) return oldResponse
+    return response(200, { data: { balance: 222 } })
+  }
+  const { ctx } = fakeHost()
+  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: impl })
+  await store.ensureReady()
+  const handler = store.actions.refresh({}, { locale: 'zh-CN' })
+  const pending = handler.result(new AbortController().signal)
+  await waitFor(() => calls.length > 0)
+
+  await store.actions['card-edit']({}, { locale: 'zh-CN', value: { id: provider.id } })
+  const effects = await store.actions.save({}, {
+    locale: 'zh-CN',
+    value: {
+      values: {
+        'data.form.name': provider.name,
+        'data.form.url': 'https://new.example.com/balance',
+        'data.form.balancePath': 'data.balance',
+        'data.form.secret': 'sk-new',
+      },
+    },
+  })
+  assert.equal(effects.at(-1).text, '已保存')
+  releaseOld(response(200, { data: { balance: 111 } }))
+  const manualEffects = await pending
+  assert.deepEqual(manualEffects, {}, '配置变了，手动刷新的旧结果不能应用')
+
+  await waitFor(() => calls.some((url) => url.includes('new.example.com')))
+  await waitFor(() => store.state.results[provider.id] && store.state.results[provider.id].balance === 222)
+  assert.equal(store.state.results[provider.id].balance, 222)
+  store.dispose()
 })
