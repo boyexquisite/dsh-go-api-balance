@@ -788,3 +788,21 @@ export function presetOptions() // → [{ label, value }] 给 UI 选项（含 cu
 ### 30.3 测试
 
 - 370 项全绿、checker 0 error；新增：junk status 单位回退、usage 自动数组、header 校验、非法 header 文案、登录 4xx/5xx/跨域、密钥不入 panelData、中止在途刷新、dispose 强制落盘、预设字段迁移、kind 保活、截断提示、卡片日期。
+
+## 31. v0.7.4 代码清理（无行为变化）
+
+- 删除死代码与测试垃圾，预设/鉴权白名单单源化，文档补历史标注。
+- 370 项全绿、checker 0 error。
+
+## 32. v0.7.5 审计修复（2026-11-14 全量审查）
+
+### 32.1 安全 / 健壮性
+
+- `resolveHome()` 不再直接依赖 `os.homedir()`：Android 本机引擎 uid 无 passwd 记录时 `os.homedir()` 会抛 `SystemError`；改为 `DSH_HOME` → `HOME/USERPROFILE` → `os.homedir()`（try/catch）→ cwd → tmpdir 逐级安全回落，并拒绝 `/` 与 `/proc`、`/sys`、`/dev` 下的假文件系统路径。
+- `writeFileAtomic` 写入前拒绝假文件系统路径，避免 Node 递归 mkdir 在 `/proc` 等路径死循环卡死宿主。
+- 地址校验新增 `urlSafetyError()`：拒绝含空白/控制字符（含 NBSP/全角空格）及内嵌 `user:pass@` 的 URL。WHATWG 解析会静默删掉 tab/换行（`https://a.com\n@evil.com` 实际连 `evil.com`）；保存前四个地址字段与运行时取数层双重拦截，防密钥发到错误域名。
+- 远端 `/api/status` 的 `usd_exchange_rate` / `custom_currency_exchange_rate` 经 `positiveRate()`：0、负数、NaN、Infinity 一律回落 1，避免余额算成负数或错值。
+
+### 32.2 测试
+
+- 376 项全绿、checker 0 error；新增 resolveHome 无 passwd / 假文件系统、URL 伪装地址矩阵、运行时 0 请求、汇率非法值等用例。
