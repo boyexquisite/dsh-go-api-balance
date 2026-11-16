@@ -70,16 +70,26 @@ jobs:
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
+      # 2026-11-16 全量复检 P1（full-d 抓的）：step 自己的 `env:` 在求值该 step 的 `if:` 时
+      # 还没合并进 env context，`if: ... env.NPM_TOKEN != ''` 永远取不到 → npm publish 被永久跳过。
+      # 改成独立 probe step 把结果写 output；token 仍只在 probe/publish 两步可见，npm test 读不到。
+      - name: Probe NPM_TOKEN
+        id: token
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -n "$NPM_TOKEN" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
       - name: Publish to npm
-        if: steps.check.outputs.exists == 'false' && env.NPM_TOKEN != ''
+        if: steps.check.outputs.exists == 'false' && steps.token.outputs.present == 'true'
         run: npm publish --access public --provenance
         env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: npm token missing (skipped)
-        if: steps.check.outputs.exists == 'false' && env.NPM_TOKEN == ''
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        if: steps.check.outputs.exists == 'false' && steps.token.outputs.present != 'true'
         run: |
           echo "::notice title=npm publish skipped::NPM_TOKEN is not configured for this repository; the GitHub Release will still be created."
       - name: Pack npm tarball
@@ -89,6 +99,9 @@ jobs:
       - name: Release notes and GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 2026-11-16 全量复检：这个 step 的 release notes 会按 NPM_TOKEN 有无写不同文案，
+          # 但之前没把 secret 传进来 → 永远写「pending an NPM_TOKEN secret」。补上（只读不写）。
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           {
