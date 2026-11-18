@@ -2262,6 +2262,24 @@ test('queryAll 有总预算：多个慢服务不会拖过总时长', async () =>
   for (const result of results) assert.equal(result.ok, false)
 })
 
+test('queryAll 总预算耗尽后不再对剩余服务发起请求（24 家不白建 24 个连接）', async () => {
+  const impl = recordingFetch(abortableDelayed(3000, responseOf(200, { data: { balance: 1 } })))
+  const runner = createRunner({ fetchImpl: impl })
+  const providers = Array.from({ length: 24 }, (_, index) =>
+    makeProvider({ id: `p_${index}`, url: `https://s${index}.example.com/b` }))
+  const started = Date.now()
+  const results = await runner.queryAll(providers, { timeoutMs: 5000, totalTimeoutMs: 120 })
+  const elapsed = Date.now() - started
+  // 默认并发 3：预算用完前只发起 3 个，剩下的按超时收尾，一个请求都不再发。
+  assert.equal(impl.calls.length, 3, `实际发起 ${impl.calls.length} 个请求`)
+  assert.equal(results.length, 24)
+  for (const result of results) {
+    assert.equal(result.ok, false)
+    assert.equal(result.error, '请求超时')
+  }
+  assert.ok(elapsed < 1500, `总耗时 ${elapsed}ms`)
+})
+
 test('1 字节 HTTP chunk 也只占一块预分配缓冲（结果正确且不超限）', async () => {
   const payload = JSON.stringify({ data: { balance: 7 } })
   const bytes = [...new TextEncoder().encode(payload)]
