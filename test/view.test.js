@@ -1317,6 +1317,36 @@ test('actions: save 成功落盘、清空表单、toast 已保存', async (t) =>
   assert.equal(patch.data.cards[0].name, '我的服务')
 })
 
+test('actions: 两个面板并发保存被串行化，两家的配置都落盘（不 last-write-wins）', async (t) => {
+  const home = await tempHome(t)
+  const { ctx } = fakeHost()
+  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, { data: { balance: 1 } }) })
+  await store.ensureReady()
+  const saveEvent = (name, url, secret) => ({
+    locale: 'zh-CN',
+    value: {
+      values: {
+        'data.form.name': name,
+        'data.form.url': url,
+        'data.form.authType': 'bearer',
+        'data.form.secret': secret,
+        'data.form.balancePath': 'data.balance',
+      },
+    },
+  })
+  // 同时发起两次保存（两个面板各自一份表单）：不等第一条完成就发第二条。
+  const first = store.actions.save({}, saveEvent('服务A', 'https://a.example.com/balance', 'sk-aaa-secret'))
+  const second = store.actions.save({}, saveEvent('服务B', 'https://b.example.com/balance', 'sk-bbb-secret'))
+  await Promise.all([first, second])
+  // 内存与磁盘都必须有两家；旧实现两边各拿旧快照，只会剩最后写的那家。
+  assert.equal(store.state.config.providers.length, 2)
+  const saved = await loadConfig(configPath(home))
+  assert.deepEqual(saved.providers.map((provider) => provider.name).sort(), ['服务A', '服务B'])
+  assert.deepEqual(saved.providers.map((provider) => provider.url).sort(),
+    ['https://a.example.com/balance', 'https://b.example.com/balance'])
+  store.dispose()
+})
+
 test('actions: save 解析 usageFieldsText、透传 usage 字段并落盘', async (t) => {
   const home = await tempHome(t)
   const { ctx } = fakeHost()
@@ -2894,6 +2924,35 @@ test('v2/v1 判定来自 view caps（data caps 只有 protocol/locale）', async
   regs.panel.view({}, { protocol: 1, locale: 'zh-CN', components: ['stack', 'list'] })
   assert.equal(store.state.v2, false)
   assert.ok(Array.isArray(panelData(store.state, {}).rows))
+  store.dispose()
+})
+
+test('data 侧与 view 同口径：宿主只报 form 能力时按 V1 下发 rows（不白屏）', async (t) => {
+  const home = await tempHome(t)
+  const { ctx, regs } = fakeHost()
+  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, { data: { balance: 1 } }) })
+  await store.ensureReady()
+  store.state.config.providers.push(makeProvider())
+  // 只报 form 的宿主：isEditableCaps=false → 渲染 V1（V1 列表绑定 rows）。
+  const partial = { protocol: 1, locale: 'zh-CN', components: ['stack', 'list', 'form', 'text'] }
+  const view = regs.panel.view({}, partial)
+  assert.equal(store.state.v2, false)
+  const emits = []
+  const cancel = regs.panel.data({}, (data) => emits.push(data), partial)
+  const data = emits.at(-1)
+  assert.equal(store.state.v2, false)
+  assert.ok(Array.isArray(data.rows), 'V1 需要 rows，否则列表空白')
+  assert.equal(data.rows.length, 1)
+  // V1 视图里所有绑定都能在 data 里取到值（不再「只剩升级提示」）。
+  assertResolvable(view, data, 'partial caps')
+  cancel()
+  // 完整现代 App 仍是 v2：不生成 rows。
+  regs.panel.view({}, FULL_CAPS)
+  const emits2 = []
+  const cancel2 = regs.panel.data({}, (item) => emits2.push(item), FULL_CAPS)
+  assert.equal(store.state.v2, true)
+  assert.equal(Object.hasOwn(emits2.at(-1), 'rows'), false)
+  cancel2()
   store.dispose()
 })
 
