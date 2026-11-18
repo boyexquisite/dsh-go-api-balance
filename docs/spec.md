@@ -806,3 +806,19 @@ export function presetOptions() // → [{ label, value }] 给 UI 选项（含 cu
 ### 32.2 测试
 
 - 376 项全绿、checker 0 error；新增 resolveHome 无 passwd / 假文件系统、URL 伪装地址矩阵、运行时 0 请求、汇率非法值等用例。
+
+## 33. v0.7.6 补丁（2026-11-18 夜间复检 A6）
+
+### 33.1 修复
+
+- `queryAll`：总预算（`totalTimeoutMs`）耗尽后不再对剩余 provider 发起请求，直接按「请求超时」结构收尾；此前 `timeoutMs` 被钳成 1ms，24 家最坏会白建 24 个「发起即取消」的连接。
+- `onSave`：保存走 `saveQueue` 串行化，两个面板并发保存时后一次必须等前一次写完再读 `state.config`，不再 last-write-wins 丢新增/编辑。
+- 面板数据侧（`panelFeed`）改用与视图同一套 `isEditableCaps(caps)`：宿主只报 `form` 而缺 `textField/tabs` 时视图渲染 V1，数据侧同步生成 `rows`，不再出现列表空白。
+
+### 33.2 测试
+
+- 379 项全绿、checker 0 error；新增：并发保存两家都落盘、只报 `form` 能力时 data 带 rows 且 V1 绑定可解析、总预算耗尽后只发起 3 个请求（默认并发 3）等用例。
+
+### 33.3 发布包
+
+- 0.7.5 发布包内 SECURITY.md 曾误带 11-14（v0.7.4）文案；0.7.6 起随包更新，并保留「tag == 发布内容」的 CI 校验。
