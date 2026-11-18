@@ -811,7 +811,7 @@ export function presetOptions() // → [{ label, value }] 给 UI 选项（含 cu
 
 ### 33.1 修复
 
-- `queryAll`：总预算（`totalTimeoutMs`）耗尽后不再对剩余 provider 发起请求，直接按「请求超时」结构收尾；此前 `timeoutMs` 被钳成 1ms，24 家最坏会白建 24 个「发起即取消」的连接。
+- `queryAll`：总预算（`totalTimeoutMs`）耗尽后不再对剩余 provider 发起请求，直接按「请求超时」结构收尾；此前 `timeoutMs` 被钳成 1ms，24 家最坏会白建 24 个「发起即取消」的连接。预算临界 5ms 内同样按超时收尾（这次请求必然在预算内超时，且避免到期瞬间再建一个 1ms 连接）。
 - `onSave`：保存走 `saveQueue` 串行化，两个面板并发保存时后一次必须等前一次写完再读 `state.config`，不再 last-write-wins 丢新增/编辑。
 - 面板数据侧（`panelFeed`）改用与视图同一套 `isEditableCaps(caps)`：宿主只报 `form` 而缺 `textField/tabs` 时视图渲染 V1，数据侧同步生成 `rows`，不再出现列表空白。
 
