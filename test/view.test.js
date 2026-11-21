@@ -347,9 +347,9 @@ test('words: 中英文案 key 齐全、值非空、长度在 UI 上限内', () =
       assert.ok([...label].length <= 200, `${locale}.fields.${key} 标签过长`)
     }
     assert.deepEqual(dictionary.presets.map((item) => item.value).sort(), [
-      'custom', 'deepseek', 'newapi', 'openai-cost', 'opencode-go', 'openrouter',
+      'aihubmix', 'custom', 'deepseek', 'newapi', 'openai-cost', 'opencode-go', 'openrouter',
     ])
-    for (const key of ['templateDeepseekSub', 'templateRelaySub', 'templateOpenrouterSub', 'templateCostSub', 'templateCodingSub', 'templateCustomSub']) {
+    for (const key of ['templateDeepseekSub', 'templateRelaySub', 'templateOpenrouterSub', 'templateAihubmixSub', 'templateCostSub', 'templateCodingSub', 'templateCustomSub']) {
       assert.ok(dictionary[key].trim() !== '', key)
     }
     assert.equal(Object.keys(dictionary.authNames).length, 6)
@@ -394,18 +394,19 @@ test('panelView: v2 根节点、无 minApp、自定义表单两页签与必填�
   assert.ok(JSON.stringify(view).includes('{7d}'), '用量地址 placeholder 带 {7d} 说明')
 })
 
-test('panelView: 添加向导只列六种主流服务类型（list 行内 choose-template，取消可收起）', () => {
+test('panelView: 添加向导只列主流服务类型（list 行内 choose-template，取消可收起）', () => {
   const view = panelView(freshState({ pickTemplate: true }), FULL_CAPS)
   assert.deepEqual(childrenTypes(view), ['emptyState', 'text', 'list', 'actions', 'actions'])
   const cancelRow = view.children.filter((child) => child.type === 'actions')[0]
   assert.deepEqual(cancelRow.items.map((item) => item.action), ['form-cancel'], '类型列表下要有取消出口')
   assert.deepEqual(cancelRow.items.map((item) => item.label), [words('zh').cancel])
   const list = view.children.find((child) => child.type === 'list')
-  assert.equal(list.items.length, 6)
+  assert.equal(list.items.length, 7)
   assert.deepEqual(list.items.map((item) => item.action), [
     { id: 'choose-template', args: { preset: 'deepseek' } },
     { id: 'choose-template', args: { preset: 'newapi' } },
     { id: 'choose-template', args: { preset: 'openrouter' } },
+    { id: 'choose-template', args: { preset: 'aihubmix' } },
     { id: 'choose-template', args: { preset: 'openai-cost' } },
     { id: 'choose-template', args: { preset: 'opencode-go' } },
     { id: 'choose-template', args: { preset: 'custom' } },
@@ -414,6 +415,7 @@ test('panelView: 添加向导只列六种主流服务类型（list 行内 choose
     words('zh').templateDeepseekSub,
     words('zh').templateRelaySub,
     words('zh').templateOpenrouterSub,
+    words('zh').templateAihubmixSub,
     words('zh').templateCostSub,
     words('zh').templateCodingSub,
     words('zh').templateCustomSub,
@@ -423,6 +425,17 @@ test('panelView: 添加向导只列六种主流服务类型（list 行内 choose
 
   const withProvider = stateWithProvider({ pickTemplate: true })
   assert.deepEqual(childrenTypes(panelView(withProvider, FULL_CAPS)), ['stack', 'text', 'list', 'actions', 'actions'])
+})
+
+test('panelView: AIHubMix 只询问 Manage Key 和启用状态', () => {
+  const state = freshState({ formOpen: true })
+  state.form = draftForm(presetDraft('aihubmix'))
+  const view = panelView(state, FULL_CAPS)
+  const binds = collectInputs(view).map((input) => input.bind)
+  assert.deepEqual(binds, ['data.form.name', 'data.form.secret', 'data.form.enabled'])
+  assert.ok(JSON.stringify(view).includes('Manage Key'))
+  assert.ok(JSON.stringify(view).includes('累计'))
+  assert.ok(!JSON.stringify(view).includes('x-miao-gw'))
 })
 
 test('panelView: 模板表单只显示关键字段（deepseek 2 项 / newapi autoUnit 显隐）', () => {
@@ -2298,6 +2311,42 @@ test('面板：订阅附加信息显示为卡片一行 + 菜单信息行', () =>
   assert.ok(menuJson.includes('编辑') && menuJson.includes('删除'))
 })
 
+test('ensureReady migrates legacy AIHubMix gateway header to safe preset and removes gateway credential', async (t) => {
+  const home = await tempHome(t)
+  const dir = path.dirname(configPath(home))
+  await fs.mkdir(dir, { recursive: true })
+  await fs.writeFile(configPath(home), JSON.stringify({
+    v: 1,
+    providers: [{
+      id: 'p_aihubmix',
+      name: 'AIHubMix',
+      preset: 'custom',
+      url: 'https://miao233.top/aihubmix/api/user/self',
+      method: 'GET',
+      authType: 'bearer',
+      secret: 'manage-key-test',
+      headersText: '{"x-miao-gw":"private-gateway-token"}',
+      balancePath: 'data.quota',
+      divisor: 500000,
+      symbol: '$',
+      decimals: 2,
+      enabled: true,
+    }],
+    settings: {},
+  }), 'utf8')
+  const { ctx } = fakeHost()
+  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(401, {}) })
+  await store.ensureReady()
+  const provider = store.state.config.providers[0]
+  assert.equal(provider.preset, 'aihubmix')
+  assert.equal(provider.url, 'https://miao233.top/aihubmix-balance/api/user/self')
+  assert.equal(provider.secret, 'manage-key-test')
+  assert.equal(provider.headersText, '')
+  assert.deepEqual(provider.usageFields, [{ label: '累计请求', path: 'data.request_count' }])
+  const data = panelData(store.state, FULL_CAPS)
+  assert.ok(!JSON.stringify(data).includes('private-gateway-token'))
+})
+
 test('ensureReady 迁移旧 new-api 配置：自动补 /api/subscription/self', async (t) => {
   const home = await tempHome(t)
   const dir = path.dirname(configPath(home))
@@ -2486,6 +2535,35 @@ test('OpenCode Go：卡片显示剩余百分比，菜单显示重置日期', () 
   const json = JSON.stringify(panelView(state, FULL_CAPS))
   assert.ok(json.includes('5小时重置'))
   assert.ok(json.includes('2026-11-24'))
+})
+
+test('actions: save AIHubMix stores only the Manage Key and fixed balance endpoint', async (t) => {
+  const home = await tempHome(t)
+  const { ctx } = fakeHost()
+  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => response(200, {
+    success: true,
+    data: { quota: 7500000, used_quota: 250000, request_count: 42 },
+  }) })
+  await store.ensureReady()
+  await store.actions.add({}, { locale: 'zh-CN' })
+  await store.actions['choose-template']({}, { locale: 'zh-CN', value: { preset: 'aihubmix' } })
+  const effects = await store.actions.save({}, {
+    locale: 'zh-CN',
+    value: { values: { 'data.form.name': '', 'data.form.secret': 'manage-key-test' } },
+  })
+  assert.equal(effects.at(-1).text, '已保存')
+  const saved = (await loadConfig(configPath(home))).providers[0]
+  assert.equal(saved.url, 'https://miao233.top/aihubmix-balance/api/user/self')
+  assert.equal(saved.secret, 'manage-key-test')
+  assert.equal(saved.headersText, '')
+  assert.deepEqual(saved.usageFields, [{ label: '累计请求', path: 'data.request_count' }])
+  assert.deepEqual(saved.detailPaths, [{ label: '累计已用', path: 'data.used_quota' }])
+  await store.actions.refresh({}, { locale: 'zh-CN', value: {} })
+  const data = panelData(store.state, FULL_CAPS)
+  assert.equal(data.cards[0].balance, '$15.00')
+  assert.equal(data.cards[0].usage0.value, '42')
+  assert.equal(data.cards[0].usage0.label, '累计请求')
+  assert.ok(!JSON.stringify(data).includes('manage-key-test'))
 })
 
 test('actions: save opencode-go / commandcode 走固定预设', async (t) => {

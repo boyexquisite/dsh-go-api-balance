@@ -3,7 +3,7 @@
 给 DSH Go 手机 App 的原生「API 余额」面板：把任意 HTTP 接口的余额、用量和订阅额度聚到一个面板。
 
 - 一家一张卡片：名称 / 状态 / 余额 / 最多 2 条用量 + 2 条明细；点状态行看全部明细、编辑、删除。
-- 6 类模板：DeepSeek、new-api / one-api 中转、OpenRouter、OpenAI / Claude 花费、OpenCode Go / Command Code、自定义。
+- 7 类模板：DeepSeek、new-api / one-api 中转、OpenRouter、AIHubMix、OpenAI / Claude 花费、OpenCode Go / Command Code、自定义。
 - 鉴权：Bearer、自定义请求头、Query、Cookie、Basic、登录换 token。
 - 凭证只存本机 `config.json`（0600），只用于你配置的接口；只走 https（本机 localhost 例外），跨域跳转拦截；零依赖、无遥测、无后台轮询。
 - 字段路径：`data.quota`、`balance_infos[0].total_balance`、`a + b`、`a - b`。
@@ -19,6 +19,7 @@ dsh plugin --profile web add dsh-go-api-balance
 1. 打开「API 余额」→「添加服务」→ 选类型。
 2. 按提示填 key 或站点地址，保存后自动刷新。
 3. 自定义类型需自己填地址、鉴权、密钥、余额路径；其余平台也能用自定义接入。
+4. AIHubMix 预设填 **Manage Key / 系统访问令牌**（不是 `sk-` 模型 API Key），显示美元余额、累计消费和累计请求；累计值不是今日/月度统计。AIHubMix 请求需通过你自行部署的精确余额代理路由。
 
 ## 模板
 
@@ -27,6 +28,7 @@ dsh plugin --profile web add dsh-go-api-balance
 | DeepSeek | 余额（¥/$ 自动） | API Key |
 | new-api / one-api | 余额、近 7 天用量、订阅额度 | 系统访问令牌 |
 | OpenRouter | 余额、今日 / 本月花费 | API Key |
+| AIHubMix | 美元余额、累计消费、累计请求 | Manage Key（不是 `sk-` API Key；累计值非日/月分项） |
 | OpenAI / Claude 花费 | 本月花费与 Token（不是余额） | Admin key |
 | OpenCode Go / Command Code | 订阅剩余额度 / 百分比 | API Key |
 

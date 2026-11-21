@@ -1594,6 +1594,31 @@ test('balanceOptional=true 但余额是非数字字符串时仍报余额不是�
   assert.equal(result.error, '余额不是数字')
 })
 
+test('AIHubMix full flow: Manage Key account totals stay private', async () => {
+  const provider = validateProvider({ ...presetDraft('aihubmix'), secret: 'manage-key-test' }).provider
+  const impl = recordingFetch(() => responseOf(200, {
+    success: true,
+    data: {
+      quota: 7250000,
+      used_quota: 250000,
+      request_count: 17,
+      username: 'personal-user',
+      email: 'private@example.com',
+    },
+  }))
+  const result = await createRunner({ fetchImpl: impl }).queryProvider(provider)
+  assert.equal(impl.calls.length, 1)
+  assert.equal(impl.calls[0].url, 'https://miao233.top/aihubmix-balance/api/user/self')
+  assert.equal(impl.calls[0].init.headers.Authorization, 'Bearer manage-key-test')
+  assert.equal(result.ok, true)
+  assert.equal(result.balance, 7250000)
+  assert.deepEqual(result.details, [{ label: '累计已用', value: 250000 }])
+  assert.deepEqual(result.usage, [{ label: '累计请求', value: 17 }])
+  assert.ok(!JSON.stringify(result).includes('manage-key-test'))
+  assert.ok(!JSON.stringify(result).includes('personal-user'))
+  assert.ok(!JSON.stringify(result).includes('private@example.com'))
+})
+
 test('OpenRouter 全链路：limit_remaining=null 时 ok、显示花费', async () => {
   const provider = validateProvider({
     ...presetDraft('openrouter'),

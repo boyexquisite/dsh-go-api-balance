@@ -279,6 +279,23 @@ test('kimi / mimo 草稿每次返回新对象', () => {
   assert.equal(presetDraft('mimo').detailPaths[0].label, '现金')
 })
 
+// ---------- AIHubMix account balance preset ----------
+
+test('aihubmix 预设：Manage Key 账户余额、累计消费与请求', () => {
+  const draft = presetDraft('aihubmix')
+  assert.equal(draft.preset, 'aihubmix')
+  assert.equal(draft.name, 'AIHubMix')
+  assert.equal(draft.url, 'https://miao233.top/aihubmix-balance/api/user/self')
+  assert.equal(draft.authType, 'bearer')
+  assert.equal(draft.balancePath, 'data.quota')
+  assert.equal(draft.divisor, 500000)
+  assert.equal(draft.symbol, '$')
+  assert.deepEqual(draft.detailPaths, [{ label: '累计已用', path: 'data.used_quota' }])
+  assert.deepEqual(draft.usageFields, [{ label: '累计请求', path: 'data.request_count' }])
+  assert.equal(draft.usageScale, false)
+  assert.equal(validateProvider({ ...draft, secret: 'manage-key-test' }).ok, true)
+})
+
 // ---------- v1.9 OpenRouter / 花费预设 ----------
 
 test('newapi 预设订阅走独立接口 /api/subscription/self（v2.0 修正）', () => {
