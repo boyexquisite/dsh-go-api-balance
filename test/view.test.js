@@ -427,13 +427,14 @@ test('panelView: 添加向导只列主流服务类型（list 行内 choose-templ
   assert.deepEqual(childrenTypes(panelView(withProvider, FULL_CAPS)), ['stack', 'text', 'list', 'actions', 'actions'])
 })
 
-test('panelView: AIHubMix 只询问 Manage Key 和启用状态', () => {
+test('panelView: AIHubMix 询问名称/接口地址/Manage Key/启用状态', () => {
   const state = freshState({ formOpen: true })
   state.form = draftForm(presetDraft('aihubmix'))
   const view = panelView(state, FULL_CAPS)
   const binds = collectInputs(view).map((input) => input.bind)
-  assert.deepEqual(binds, ['data.form.name', 'data.form.secret', 'data.form.enabled'])
+  assert.deepEqual(binds, ['data.form.name', 'data.form.url', 'data.form.secret', 'data.form.enabled'])
   assert.ok(JSON.stringify(view).includes('Manage Key'))
+  assert.ok(JSON.stringify(view).includes('接口地址'))
   assert.ok(JSON.stringify(view).includes('累计'))
   assert.ok(!JSON.stringify(view).includes('x-miao-gw'))
 })

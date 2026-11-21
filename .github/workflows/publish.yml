@@ -88,10 +88,11 @@ jobs:
         run: npm publish --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-      - name: npm token missing (skipped)
+      - name: npm token missing (fail)
         if: steps.check.outputs.exists == 'false' && steps.token.outputs.present != 'true'
         run: |
-          echo "::notice title=npm publish skipped::NPM_TOKEN is not configured for this repository; the GitHub Release will still be created."
+          echo "::error title=npm publish failed::NPM_TOKEN is not configured for this repository; refusing to create a Release without publishing to npm."
+          exit 1
       - name: Pack npm tarball
         run: |
           mkdir -p dist
