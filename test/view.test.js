@@ -2346,6 +2346,10 @@ test('ensureReady migrates legacy AIHubMix gateway header to safe preset and rem
   assert.deepEqual(provider.usageFields, [{ label: '累计请求', path: 'data.request_count' }])
   const data = panelData(store.state, FULL_CAPS)
   assert.ok(!JSON.stringify(data).includes('private-gateway-token'))
+  const persisted = JSON.parse(await fs.readFile(configPath(home), 'utf8'))
+  assert.equal(persisted.providers[0].preset, 'aihubmix')
+  assert.equal(persisted.providers[0].headersText, '')
+  assert.ok(!JSON.stringify(persisted).includes('private-gateway-token'))
 })
 
 test('ensureReady 迁移旧 new-api 配置：自动补 /api/subscription/self', async (t) => {
