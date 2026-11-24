@@ -742,6 +742,49 @@ test('loadConfig / loadResults 读到宽权限文件会自动收紧为 0600（�
   assert.equal((await fs.stat(resultsPath(home))).mode & 0o777, 0o600)
 })
 
+test('配置与缓存拒绝文件/父目录软链，不读写或 chmod 外部目标', async (t) => {
+  if (process.platform === 'win32') return
+  const home = await tempHome(t)
+  const outside = await tempHome(t)
+  const dir = configDir(home)
+  await fs.mkdir(dir, { recursive: true })
+  const external = path.join(outside, 'external.json')
+  await fs.writeFile(external, JSON.stringify(defaultConfig()), { mode: 0o644 })
+  await fs.chmod(external, 0o644) // 当前 root umask=077；显式设宽权限才能验证没有误收紧外部文件
+  await fs.symlink(external, configPath(home))
+  assert.deepEqual(await loadConfig(configPath(home)), defaultConfig())
+  await assert.rejects(saveConfig(defaultConfig(), configPath(home)))
+  assert.equal((await fs.stat(external)).mode & 0o777, 0o644)
+  assert.equal((await fs.lstat(configPath(home))).isSymbolicLink(), true)
+
+  await fs.unlink(configPath(home))
+  await fs.rmdir(dir)
+  await fs.symlink(outside, dir)
+  assert.deepEqual(await loadConfig(configPath(home)), defaultConfig())
+  await assert.rejects(saveConfig(defaultConfig(), configPath(home)))
+  assert.deepEqual(await fs.readdir(outside), ['external.json'])
+})
+
+test('配置与缓存拒绝 FIFO 和超过 1 MiB 的文件', async (t) => {
+  if (process.platform === 'win32') return
+  const home = await tempHome(t)
+  const dir = configDir(home)
+  await fs.mkdir(dir, { recursive: true })
+  const fifo = spawnSync('mkfifo', [configPath(home)])
+  assert.equal(fifo.status, 0)
+  assert.deepEqual(await loadConfig(configPath(home)), defaultConfig())
+  assert.deepEqual(await loadResults(configPath(home)), emptyResultsPlaceholder())
+  await fs.unlink(configPath(home))
+  await fs.writeFile(configPath(home), `{${' '.repeat(1024 * 1024)}}`)
+  assert.deepEqual(await loadConfig(configPath(home)), defaultConfig())
+  assert.deepEqual(await loadResults(configPath(home)), emptyResultsPlaceholder())
+  assert.deepEqual(await fs.readdir(dir), [path.basename(configPath(home))])
+})
+
+function emptyResultsPlaceholder () {
+  return { v: RESULTS_VERSION, results: {} }
+}
+
 test('坏配置备份：rename 后收紧到 0600，目录收紧到 0700', async (t) => {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-balance-bad-'))
   t.after(async () => { await fs.rm(home, { recursive: true, force: true }) })

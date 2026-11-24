@@ -1361,6 +1361,27 @@ test('actions: 两个面板并发保存被串行化，两家的配置都落盘�
   store.dispose()
 })
 
+test('actions: 保存与删除并发也串行落盘，删除不会被旧快照覆盖', async (t) => {
+  const home = await tempHome(t)
+  const old = makeProvider({ name: 'old', enabled: false })
+  await saveConfig({ v: 1, providers: [old], settings: { refreshOnOpen: false, timeoutMs: 4000 } }, configPath(home))
+  const { ctx } = fakeHost()
+  const store = apply(ctx, { home, now: () => FIXED_NOW, fetchImpl: async () => { throw new Error('network forbidden') } })
+  await store.ensureReady()
+  await store.actions.add({}, { locale: 'zh-CN' })
+  await store.actions['choose-template']({}, { locale: 'zh-CN', value: { preset: 'deepseek' } })
+  await store.actions['card-delete']({}, { locale: 'zh-CN', value: { id: old.id } })
+  const saving = store.actions.save({}, { locale: 'zh-CN', value: { values: {
+    'data.form.name': 'new', 'data.form.secret': 'sk-new-secret', 'data.form.enabled': false,
+  } } })
+  const deleting = store.actions['card-delete-confirm']({}, { locale: 'zh-CN', value: { id: old.id } })
+  await Promise.all([saving, deleting])
+  assert.deepEqual(store.state.config.providers.map((provider) => provider.name), ['new'])
+  const saved = await loadConfig(configPath(home))
+  assert.deepEqual(saved.providers.map((provider) => provider.name), ['new'])
+  store.dispose()
+})
+
 test('actions: save 解析 usageFieldsText、透传 usage 字段并落盘', async (t) => {
   const home = await tempHome(t)
   const { ctx } = fakeHost()
@@ -2332,6 +2353,20 @@ test('ensureReady migrates legacy AIHubMix gateway header to safe preset and rem
       symbol: '$',
       decimals: 2,
       enabled: true,
+    }, {
+      id: 'p_aihubmix2',
+      name: 'AIHubMix 2',
+      preset: 'custom',
+      url: 'https://miao233.top/aihubmix/api/user/self',
+      method: 'GET',
+      authType: 'bearer',
+      secret: 'manage-key-test-2',
+      headersText: '{"x-miao-gw":"private-gateway-token-2"}',
+      balancePath: 'data.quota',
+      divisor: 500000,
+      symbol: '$',
+      decimals: 2,
+      enabled: true,
     }],
     settings: {},
   }), 'utf8')
@@ -2347,9 +2382,10 @@ test('ensureReady migrates legacy AIHubMix gateway header to safe preset and rem
   const data = panelData(store.state, FULL_CAPS)
   assert.ok(!JSON.stringify(data).includes('private-gateway-token'))
   const persisted = JSON.parse(await fs.readFile(configPath(home), 'utf8'))
-  assert.equal(persisted.providers[0].preset, 'aihubmix')
-  assert.equal(persisted.providers[0].headersText, '')
+  assert.equal(persisted.providers.length, 2)
+  assert.ok(persisted.providers.every((item) => item.preset === 'aihubmix' && item.headersText === ''))
   assert.ok(!JSON.stringify(persisted).includes('private-gateway-token'))
+  assert.ok(persisted.providers.some((item) => item.id === 'p_aihubmix2'), '第二家的迁移也必须落盘')
 })
 
 test('ensureReady 迁移旧 new-api 配置：自动补 /api/subscription/self', async (t) => {
