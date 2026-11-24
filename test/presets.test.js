@@ -29,6 +29,35 @@ test('deepseek 模板可以直接通过 validateProvider 校验', () => {
   assert.equal(result.provider.preset, 'deepseek')
 })
 
+test('acedata 模板：邮箱登录、积分余额与近 7 天用量', () => {
+  const draft = presetDraft('acedata')
+  assert.equal(draft.preset, 'acedata')
+  assert.equal(draft.name, 'Ace Data Cloud（积分）')
+  assert.equal(draft.authType, 'login')
+  assert.equal(draft.loginUserField, 'email')
+  assert.equal(draft.loginUrl, 'https://auth.acedata.cloud/api/v1/auth/login/')
+  assert.equal(draft.url, 'https://platform.acedata.cloud/api/v1/applications/?type=Usage&limit=100')
+  assert.equal(draft.tokenPath, 'access_token')
+  assert.equal(draft.balancePath, 'items[].remaining_amount')
+  assert.deepEqual(draft.detailPaths, [
+    { label: '累计消耗', path: 'items[].used_amount' },
+    { label: '账户数', path: 'count', kind: 'count' },
+  ])
+  assert.deepEqual(draft.usageFields, [
+    { label: '近7天调用', path: 'requests' },
+    { label: '近7天消耗', path: 'total' },
+  ])
+  assert.equal(draft.symbol, '')
+  assert.equal(draft.decimals, 2)
+  assert.match(draft.usageUrl, /created_at_from=\{7d_iso\}/)
+  assert.match(draft.usageUrl, /timezone=Asia%2FShanghai/)
+
+  const result = validateProvider({ ...draft, username: 'me@example.com', secret: 'pw' })
+  assert.equal(result.ok, true)
+  assert.equal(result.provider.preset, 'acedata')
+  assert.equal(result.provider.loginUserField, 'email')
+})
+
 test('newapi 模板空 base 留空地址', () => {
   const draft = presetDraft('newapi')
   assert.equal(draft.preset, 'newapi')

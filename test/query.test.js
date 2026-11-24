@@ -203,6 +203,50 @@ test('鉴权 login 先登录换 token 再带 token 请求', async () => {
   assert.equal(mainCall.init.headers.Authorization, 'Bearer tok-1')
 })
 
+test('Ace Data：email 登录 + 积分余额 + 近 7 天用量', async () => {
+  const balanceUrl = 'https://platform.acedata.cloud/api/v1/applications/?type=Usage&limit=100'
+  const impl = recordingFetch((url) => {
+    if (url === LOGIN_URL) return responseOf(200, { access_token: 'tok-ace' })
+    if (url.includes('/applications/')) {
+      return responseOf(200, { count: 1, items: [{ remaining_amount: 65.3783, used_amount: 36.6217 }] })
+    }
+    if (url.includes('/usage/apis/aggregate/')) {
+      return responseOf(200, { requests: 35, total: 6.74 })
+    }
+    return responseOf(500, {})
+  })
+  const runner = createRunner({ fetchImpl: impl })
+  const result = await runner.queryProvider(makeProvider({
+    preset: 'acedata',
+    url: balanceUrl,
+    authType: 'login',
+    loginUserField: 'email',
+    username: 'me@example.com',
+    loginUrl: LOGIN_URL,
+    secret: 'pw',
+    tokenPath: 'access_token',
+    balancePath: 'items[].remaining_amount',
+    detailPaths: [{ label: '累计消耗', path: 'items[].used_amount' }],
+    usageUrl: 'https://platform.acedata.cloud/api/v1/usage/apis/aggregate/?created_at_from={7d_iso}&created_at_to={now_iso}&timezone=Asia%2FShanghai',
+    usageFields: [
+      { label: '近7天调用', path: 'requests' },
+      { label: '近7天消耗', path: 'total' },
+    ],
+  }))
+  assert.equal(result.ok, true)
+  assert.equal(result.balance, 65.3783)
+  assert.deepEqual(result.details, [{ label: '累计消耗', value: 36.6217 }])
+  assert.deepEqual(result.usage, [
+    { label: '近7天调用', value: 35 },
+    { label: '近7天消耗', value: 6.74 },
+  ])
+  const loginCall = impl.calls.find((call) => call.url === LOGIN_URL)
+  assert.deepEqual(JSON.parse(loginCall.init.body), { email: 'me@example.com', password: 'pw' })
+  const mainCall = impl.calls.find((call) => call.url === balanceUrl)
+  assert.equal(mainCall.init.headers.Authorization, 'Bearer tok-ace')
+  assert.ok(impl.calls.some((call) => call.url.includes('/usage/apis/aggregate/')))
+})
+
 test('login 支持自定义 tokenPath / tokenHeader / tokenPrefix', async () => {
   const impl = recordingFetch((url) => {
     if (url === LOGIN_URL) return responseOf(200, { result: { access_token: 'abc' } })

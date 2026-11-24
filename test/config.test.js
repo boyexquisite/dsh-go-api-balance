@@ -133,7 +133,7 @@ test('validateProvider 接受完整合法草稿并补齐默认值', () => {
   assert.match(provider.id, /^p_[a-z0-9]{6,12}$/)
   assert.deepEqual(Object.keys(provider).sort(), [
     'authType', 'autoUnit', 'balanceOptional', 'balancePath', 'bodyText', 'currencyPath', 'decimals', 'detailPaths',
-    'divisor', 'enabled', 'extraFields', 'extraUrl', 'headersText', 'id', 'loginUrl', 'method', 'multiplier',
+    'divisor', 'enabled', 'extraFields', 'extraUrl', 'headersText', 'id', 'loginUrl', 'loginUserField', 'method', 'multiplier',
     'name', 'preset', 'secret', 'secretHeader', 'secretParam', 'symbol', 'tokenHeader',
     'tokenPath', 'tokenPrefix', 'url', 'usageArrayPath', 'usageFields', 'usageMethod',
     'usageScale', 'usageUrl', 'username',
@@ -146,6 +146,7 @@ test('validateProvider 接受完整合法草稿并补齐默认值', () => {
   assert.equal(provider.secretHeader, 'X-API-Key')
   assert.equal(provider.secretParam, 'key')
   assert.equal(provider.username, '')
+  assert.equal(provider.loginUserField, 'username')
   assert.equal(provider.loginUrl, '')
   assert.equal(provider.tokenPath, 'data.token')
   assert.equal(provider.tokenHeader, 'Authorization')

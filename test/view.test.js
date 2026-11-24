@@ -339,6 +339,7 @@ test('words: 中英文案 key 齐全、值非空、长度在 UI 上限内', () =
     }
     assert.ok([...dictionary.chooseTemplate].length <= 24)
     assert.ok([...dictionary.deepseekCaption].length <= 200)
+    assert.ok([...dictionary.acedataCaption].length <= 200)
     assert.ok([...dictionary.relayCaption].length <= 200)
     assert.ok([...dictionary.costCaption].length <= 200)
     assert.ok([...dictionary.codingCaption].length <= 200)
@@ -347,9 +348,9 @@ test('words: 中英文案 key 齐全、值非空、长度在 UI 上限内', () =
       assert.ok([...label].length <= 200, `${locale}.fields.${key} 标签过长`)
     }
     assert.deepEqual(dictionary.presets.map((item) => item.value).sort(), [
-      'aihubmix', 'custom', 'deepseek', 'newapi', 'openai-cost', 'opencode-go', 'openrouter',
+      'acedata', 'aihubmix', 'custom', 'deepseek', 'newapi', 'openai-cost', 'opencode-go', 'openrouter',
     ])
-    for (const key of ['templateDeepseekSub', 'templateRelaySub', 'templateOpenrouterSub', 'templateAihubmixSub', 'templateCostSub', 'templateCodingSub', 'templateCustomSub']) {
+    for (const key of ['templateDeepseekSub', 'templateAcedataSub', 'templateRelaySub', 'templateOpenrouterSub', 'templateAihubmixSub', 'templateCostSub', 'templateCodingSub', 'templateCustomSub']) {
       assert.ok(dictionary[key].trim() !== '', key)
     }
     assert.equal(Object.keys(dictionary.authNames).length, 6)
@@ -401,9 +402,10 @@ test('panelView: 添加向导只列主流服务类型（list 行内 choose-templ
   assert.deepEqual(cancelRow.items.map((item) => item.action), ['form-cancel'], '类型列表下要有取消出口')
   assert.deepEqual(cancelRow.items.map((item) => item.label), [words('zh').cancel])
   const list = view.children.find((child) => child.type === 'list')
-  assert.equal(list.items.length, 7)
+  assert.equal(list.items.length, 8)
   assert.deepEqual(list.items.map((item) => item.action), [
     { id: 'choose-template', args: { preset: 'deepseek' } },
+    { id: 'choose-template', args: { preset: 'acedata' } },
     { id: 'choose-template', args: { preset: 'newapi' } },
     { id: 'choose-template', args: { preset: 'openrouter' } },
     { id: 'choose-template', args: { preset: 'aihubmix' } },
@@ -413,6 +415,7 @@ test('panelView: 添加向导只列主流服务类型（list 行内 choose-templ
   ])
   assert.deepEqual(list.items.map((item) => item.subtitle), [
     words('zh').templateDeepseekSub,
+    words('zh').templateAcedataSub,
     words('zh').templateRelaySub,
     words('zh').templateOpenrouterSub,
     words('zh').templateAihubmixSub,
@@ -437,6 +440,25 @@ test('panelView: AIHubMix 询问名称/接口地址/Manage Key/启用状态', ()
   assert.ok(JSON.stringify(view).includes('接口地址'))
   assert.ok(JSON.stringify(view).includes('累计'))
   assert.ok(!JSON.stringify(view).includes('x-miao-gw'))
+})
+
+test('panelView: Ace Data 询问名称/控制台邮箱/密码，不暴露 API Key 字段', () => {
+  const state = freshState({ formOpen: true })
+  state.form = draftForm(presetDraft('acedata'))
+  const view = panelView(state, FULL_CAPS)
+  const inputs = collectInputs(view)
+  assert.deepEqual(inputs.map((input) => input.bind), [
+    'data.form.name',
+    'data.form.username',
+    'data.form.secret',
+    'data.form.enabled',
+  ])
+  assert.equal(inputs.find((input) => input.bind === 'data.form.username').label, words('zh').acedataEmailLabel)
+  const json = JSON.stringify(view)
+  assert.ok(json.includes('控制台邮箱'))
+  assert.ok(json.includes('近 7 天'))
+  assert.ok(!json.includes('data.form.secretHeader'))
+  assert.ok(!json.includes('data.form.loginUrl'))
 })
 
 test('panelView: 模板表单只显示关键字段（deepseek 2 项 / newapi autoUnit 显隐）', () => {
