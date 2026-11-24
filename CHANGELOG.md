@@ -1,5 +1,10 @@
 # 更新日志
 
+## 0.7.8
+
+- 修复：`upgradeProvider` 补传 `configFile` 参数并修复 `saveConfig` 落盘路径，确保迁移旧版 AIHubMix 网关配置后立即在磁盘 `config.json` 中清除旧 `x-miao-gw` 请求头（不再静默抛出 `ReferenceError`）。
+- 测试：补齐迁移后的磁盘 `config.json` 持久化断言，384 项测试全部通过。
+
 ## 0.7.7
 
 - 新增 AIHubMix 账户余额预设：Manage Key 查询账户余额、累计消费和请求数；单位按官方接口规则换算为美元。
