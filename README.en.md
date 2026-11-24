@@ -20,12 +20,14 @@ dsh plugin --profile web add dsh-go-api-balance
 2. Fill in the key or site URL; it refreshes right after saving.
 3. Custom requires URL, auth, key and balance path; any other platform can use custom too.
 4. The AIHubMix preset requires a **Manage Key / system access token**, not the `sk-` model API key. It shows USD balance, cumulative spend and cumulative requests, not daily/monthly usage. Requests must use your own exact-path balance proxy route.
+5. The Ace Data Cloud preset requires the **console email + password** (not a model API key); the plugin logs in to obtain a token. The password is only stored in the local `config.json`.
 
 ## Templates
 
 | Template | Shows | Credential |
 |---|---|---|
 | DeepSeek | balance (auto ¥/$) | API key |
+| Ace Data Cloud | credits balance, cumulative spend, 7-day calls/spend | console email + password (not an API key) |
 | new-api / one-api | balance, 7-day usage, subscription quota | access token |
 | OpenRouter | balance, today / month spend | API key |
 | AIHubMix | USD balance, cumulative spend and requests | Manage Key (not the `sk-` API key; cumulative totals only) |

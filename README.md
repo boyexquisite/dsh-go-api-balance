@@ -20,12 +20,14 @@ dsh plugin --profile web add dsh-go-api-balance
 2. 按提示填 key 或站点地址，保存后自动刷新。
 3. 自定义类型需自己填地址、鉴权、密钥、余额路径；其余平台也能用自定义接入。
 4. AIHubMix 预设填 **Manage Key / 系统访问令牌**（不是 `sk-` 模型 API Key），显示美元余额、累计消费和累计请求；累计值不是今日/月度统计。AIHubMix 请求走精确余额代理路由；**接口地址默认填项目作者部署的公共路由（`https://miao233.top/...`，会把 Manage Key 发到该服务器），表单里可改成你自己部署的代理**，介意请替换。
+5. Ace Data Cloud 预设填 **控制台邮箱 + 密码**（不是模型 API Key）；插件用它登录换 token，密码只存本机 `config.json`。
 
 ## 模板
 
 | 模板 | 显示 | 凭证 |
 |---|---|---|
 | DeepSeek | 余额（¥/$ 自动） | API Key |
+| Ace Data Cloud | 积分余额、累计消耗、近 7 天调用/消耗 | 控制台邮箱 + 密码（不是 API Key） |
 | new-api / one-api | 余额、近 7 天用量、订阅额度 | 系统访问令牌 |
 | OpenRouter | 余额、今日 / 本月花费 | API Key |
 | AIHubMix | 美元余额、累计消费、累计请求 | Manage Key（不是 `sk-` API Key；累计值非日/月分项） |
