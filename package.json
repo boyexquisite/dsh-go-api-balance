@@ -1,6 +1,6 @@
 {
   "name": "dsh-go-api-balance",
-  "version": "0.7.7",
+  "version": "0.7.8",
   "description": "API balance, usage and subscription quotas for the dsh-go app: a native panel that reads balances from any HTTP endpoint with an API key or site token. Seven mainstream templates included; credentials stay on the host.",
   "license": "MIT",
   "author": "miao",
