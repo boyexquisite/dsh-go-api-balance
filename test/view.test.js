@@ -2665,20 +2665,37 @@ test('actions: Codex 预设从 DSH 凭据读取额度且令牌不落盘', async 
   assert.equal(data.cards[0].balance, '98%')
   assert.equal(data.cards[0].usage0.label, '5小时剩余%')
   assert.equal(data.cards[0].usage0.value, '98')
-  assert.equal(data.cards[0].usageLine0, '5小时剩余 98%')
-  assert.equal(data.cards[0].usageLine1, '本周剩余 100%')
+  assert.deepEqual(data.cards[0].quota, [
+    { label: '5小时剩余', value: '98%', tone: 'good' },
+    { label: '本周剩余', value: '100%', tone: 'good' },
+  ])
   const card = panelView(store.state, FULL_CAPS).children[0]
   assert.equal(nodesOfType(card, 'metric').length, 0, 'Codex 不再单挂大号百分比')
-  const quotaTexts = nodesOfType(card, 'text').filter((node) => node.text && node.text.$)
-  assert.deepEqual(quotaTexts.map((node) => node.text.$), [
-    'data.cards[0].usageLine0',
-    'data.cards[0].usageLine1',
-  ])
-  assert.equal(quotaTexts[0].style.weight, 'bold')
+  const quotaRows = nodesOfType(card, 'keyValue')
+  assert.equal(quotaRows.length, 1, '两档窗口在同一个 keyValue 里，各一行')
+  assert.deepEqual(quotaRows[0].items, { $: 'data.cards[0].quota' })
   assert.ok(fetchCalls >= 1)
   assert.ok(!JSON.stringify(savedConfig).includes(oauthSecret))
   assert.ok(!JSON.stringify(data).includes(oauthSecret))
   assert.ok(!JSON.stringify(store.state.results).includes(oauthSecret))
+})
+
+test('Codex 额度行：剩余低于 20% 标红、20–50% 标橙、其余绿', () => {
+  const state = stateWithProvider()
+  state.config.providers[0].preset = 'openai-codex'
+  state.config.providers[0].symbol = '%'
+  state.config.providers[0].decimals = 0
+  state.results.p_abc12345 = makeResult('p_abc12345', {
+    symbol: '%',
+    decimals: 0,
+    usage: [
+      { label: '5小时剩余%', value: 12 },
+      { label: '本周剩余%', value: 40 },
+    ],
+  })
+  const card = panelData(state, FULL_CAPS).cards[0]
+  assert.equal(card.quota[0].tone, 'bad')
+  assert.equal(card.quota[1].tone, 'warn')
 })
 
 test('actions: save AIHubMix stores only the Manage Key and fixed balance endpoint', async (t) => {
