@@ -67,10 +67,11 @@ test('安全基线：源码里没有日志/子进程/eval/遥测', async () => {
   }
 })
 
-test('安全基线：取数层不硬编码任何地址，只请求调用方给的 URL', async () => {
+test('安全基线：取数层只硬编码 Codex 固定额度地址', async () => {
   const text = await fs.readFile(path.join(root, 'lib', 'query.js'), 'utf8')
   assert.ok(text.includes('globalThis.fetch'))
-  assert.ok(!/https?:\/\//.test(text), 'query.js 不应硬编码地址')
+  const urls = [...text.matchAll(/https?:\/\/[^'"`\s]+/g)].map((match) => match[0])
+  assert.deepEqual(urls, ['https://chatgpt.com/backend-api/wham/usage'])
 })
 
 test('安全基线：文档里有安全说明与可验证的数据流向', async () => {

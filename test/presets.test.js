@@ -479,6 +479,28 @@ test('opencode-go 预设：订阅窗口百分比，卡片显示滚动剩余', ()
   assert.equal(result.provider.detailPaths[0].kind, 'date')
 })
 
+test('openai-codex 预设：只读 DSH OAuth，按 5 小时/周窗口显示剩余百分比', () => {
+  const draft = presetDraft('openai-codex')
+  assert.equal(draft.preset, 'openai-codex')
+  assert.equal(draft.name, 'Codex')
+  assert.equal(draft.url, 'https://chatgpt.com/backend-api/wham/usage')
+  assert.equal(draft.secret, '')
+  assert.equal(draft.balancePath, '100 - rate_limit.primary_window.used_percent')
+  assert.deepEqual(draft.usageFields, [
+    { label: '5小时剩余%', path: '100 - rate_limit.primary_window.used_percent' },
+    { label: '本周剩余%', path: '100 - rate_limit.secondary_window.used_percent' },
+  ])
+  assert.equal(draft.symbol, '%')
+  const checked = validateProvider(draft)
+  assert.equal(checked.ok, true, JSON.stringify(checked.errors))
+  assert.equal(checked.provider.secret, '')
+  assert.equal(checked.provider.url, draft.url)
+  const hostile = validateProvider({ ...draft, url: 'https://evil.example/quota', secret: 'must-not-store' })
+  assert.equal(hostile.ok, true)
+  assert.equal(hostile.provider.url, draft.url)
+  assert.equal(hostile.provider.secret, '')
+})
+
 test('commandcode 预设：月度剩余额度 + 5h/周剩余金额', () => {
   const draft = presetDraft('commandcode')
   assert.equal(draft.preset, 'commandcode')

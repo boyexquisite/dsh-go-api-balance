@@ -3,9 +3,9 @@
 Native **API balance** panel for the DSH Go phone app: balances, usage and subscription quotas from any HTTP endpoint in one place.
 
 - One card per service: name / status / balance / up to 2 usage metrics + 2 details; tap the status row for all details, edit and delete.
-- Seven templates: DeepSeek, new-api / one-api relay, OpenRouter, AIHubMix, OpenAI / Claude spend, OpenCode Go / Command Code, custom.
+- Eight template groups: DeepSeek, new-api / one-api relay, OpenRouter, AIHubMix, OpenAI / Claude spend, Codex subscription, OpenCode Go / Command Code, custom.
 - Auth: Bearer, custom header, query param, cookie, Basic, or login for a token.
-- Credentials stay on the host in `config.json` (0600) and are only sent to endpoints you configure. HTTPS only (loopback excepted), cross-origin redirects blocked, zero dependencies, no telemetry, no background polling.
+- User-entered credentials stay on the host in `config.json` (0600); Codex reuses the DSH credential store without copying its token. HTTPS only (loopback excepted), cross-origin redirects blocked, zero dependencies, no telemetry, no background polling.
 - Field paths: `data.quota`, `balance_infos[0].total_balance`, `a + b`, `a - b`.
 
 ## Install
@@ -21,6 +21,7 @@ dsh plugin --profile web add dsh-go-api-balance
 3. Custom requires URL, auth, key and balance path; any other platform can use custom too.
 4. The AIHubMix preset requires a **Manage Key / system access token**, not the `sk-` model API key. It shows USD balance, cumulative spend and cumulative requests, not daily/monthly usage. Requests must use your own exact-path balance proxy route.
 5. The Ace Data Cloud preset requires the **console email + password** (not a model API key); the plugin logs in to obtain a token. The password is only stored in the local `config.json`.
+6. The Codex preset reuses the existing DSH `openai-codex` sign-in; no key is needed. It only reads quota from `chatgpt.com` and never writes the OAuth token to this plugin's config.
 
 ## Templates
 
@@ -32,6 +33,7 @@ dsh plugin --profile web add dsh-go-api-balance
 | OpenRouter | balance, today / month spend | API key |
 | AIHubMix | USD balance, cumulative spend and requests | Manage Key (not the `sk-` API key; cumulative totals only) |
 | OpenAI / Claude spend | month spend and tokens (not a balance) | Admin key |
+| Codex subscription | 5-hour / weekly remaining percentages and resets | Existing DSH `openai-codex` OAuth (token not copied) |
 | OpenCode Go / Command Code | subscription quota / percent | API key |
 
 ## Config

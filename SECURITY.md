@@ -1,17 +1,18 @@
 # 安全说明（dsh-go-api-balance）
 
-更新时间：2026-11-24（基于 v0.7.8 的审计修复分支）
+更新时间：2026-11-27（v0.8.1）
 
 ## 这个插件会碰什么
 
 | 数据 | 处理方式 |
 |---|---|
 | 你填的 API Key / 访问令牌 / 账号密码 / Cookie | 只写在本机 `$DSH_HOME/cache/dsh-go-api-balance/config.json`（0600），只用于请求你为该服务填写的接口地址 |
-| 余额 / 用量 / 订阅返回的 JSON | 解析出数字后写 `results.json`（0600），在面板里显示；原始 JSON 不落盘。AIHubMix Manage Key 返回中包含的用户资料不会存储或展示 |
+| Codex OAuth | Codex 预设只读 DSH 凭据记录 `llm-pi-ai/openai-codex`，令牌不复制到本插件配置、缓存或面板；仅发给 `chatgpt.com` 的额度接口 |
+| 余额 / 用量 / 订阅返回的 JSON | 只解析显示所需字段后写 `results.json`（0600），原始 JSON 不落盘。AIHubMix Manage Key 返回中包含的用户资料不会存储或展示 |
 | 对话、剪贴板、其他文件、模型上下文 | **完全不读、不写、不上报**；清单里没有申请任何 `wants` 权限 |
 | 遥测 / 统计 / 崩溃上报 | **没有**；代码里没有 console 日志、没有第三方上报地址 |
 
-网络请求只有这些，且都来自你配置的服务：
+网络请求仅限以下几类；除 Codex 固定地址外，都来自你配置的服务：
 
 1. 余额请求：`provider.url`
 2. 用量请求（可选）：`provider.usageUrl`
@@ -19,8 +20,13 @@
 4. 登录换 token（可选）：`provider.loginUrl`
 5. 自动识别站点货币：`站点根 + /api/status`，**不带任何密钥**
 6. AIHubMix 预设：只访问固定的账户 `/api/user/self` 路径，并把请求交给用户填写的精确代理路由；**默认值是项目作者部署的公共路由，可在表单里替换成自己的**；仅传递用户填写的 Manage Key。代理不接受其它路径、query 参数或非 GET 方法，也不会把代理访问令牌放入插件配置或面板数据。
+7. Codex 预设：只 GET `https://chatgpt.com/backend-api/wham/usage`，用 DSH 凭据记录里的 `openai-codex` access token 和 account id；这是 ChatGPT 内部额度接口，不是公开 API。令牌只在请求期间驻留内存，不写入余额插件配置、结果缓存或 App 面板。
 
 没有后台轮询：只有打开面板、点刷新/保存，或结果超过 60 秒时才会请求。
+
+## v0.8.1 新增
+
+- Codex 额度只用现有 DSH OAuth 登录查询，不复制令牌、不尝试刷新令牌。access token 过期时明确提示先通过 Codex 登录流程刷新；不把原始响应或账户资料落盘。
 
 ## v0.7.7 新增
 

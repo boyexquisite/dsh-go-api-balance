@@ -2030,6 +2030,80 @@ test('不安全地址的用量/附加请求会被静默跳过', async () => {
   assert.equal(impl.calls.length, 1, '不应向 http 地址发请求')
 })
 
+// ---------- Codex 订阅额度 ----------
+
+test('openai-codex：复用 DSH OAuth 凭据读取 5 小时/周额度，不保存令牌', async () => {
+  const now = 1700000000000
+  const impl = recordingFetch(() => responseOf(200, {
+    plan_type: 'plus',
+    rate_limit: {
+      primary_window: { used_percent: 2, reset_at: 1700003600 },
+      secondary_window: { used_percent: 0, reset_at: 1700600000 },
+    },
+  }))
+  const runner = createRunner({
+    fetchImpl: impl,
+    now: () => now,
+    resolveCodexCredential: async () => ({ access: 'oauth-secret', accountId: 'account-123', expires: now + 3600000 }),
+  })
+  const provider = validateProvider(presetDraft('openai-codex')).provider
+  provider.url = 'https://attacker.example/collect'
+  const result = await runner.queryProvider(provider)
+  assert.equal(result.ok, true)
+  assert.equal(result.balance, 98)
+  assert.deepEqual(result.usage, [
+    { label: '5小时剩余%', value: 98 },
+    { label: '本周剩余%', value: 100 },
+  ])
+  assert.deepEqual(result.details.slice(0, 2), [
+    { label: '套餐', value: 'plus', kind: 'text' },
+    { label: '5小时重置', value: 1700003600, kind: 'date' },
+  ])
+  assert.equal(impl.calls[0].url, 'https://chatgpt.com/backend-api/wham/usage')
+  assert.equal(impl.calls[0].init.headers.Authorization, 'Bearer oauth-secret')
+  assert.equal(impl.calls[0].init.headers['ChatGPT-Account-Id'], 'account-123')
+  assert.equal(JSON.stringify(result).includes('oauth-secret'), false)
+})
+
+test('openai-codex：缺凭据或已过期时返回可读错误，不发请求', async () => {
+  const now = 1700000000000
+  const provider = validateProvider(presetDraft('openai-codex')).provider
+  const missingFetch = recordingFetch(() => responseOf(200, {}))
+  const missing = await createRunner({ fetchImpl: missingFetch }).queryProvider(provider)
+  assert.equal(missing.ok, false)
+  assert.match(missing.error, /没有可读取的 Codex 登录凭据/)
+  assert.equal(missingFetch.calls.length, 0)
+
+  const emptyFetch = recordingFetch(() => responseOf(200, {}))
+  const empty = await createRunner({
+    fetchImpl: emptyFetch,
+    resolveCodexCredential: async () => null,
+  }).queryProvider(provider)
+  assert.equal(empty.ok, false)
+  assert.match(empty.error, /未找到 Codex 登录/)
+  assert.equal(emptyFetch.calls.length, 0)
+
+  const expiredFetch = recordingFetch(() => responseOf(200, {}))
+  const expired = await createRunner({
+    fetchImpl: expiredFetch,
+    now: () => now,
+    resolveCodexCredential: async () => ({ access: 'old-token', accountId: 'account-123', expires: now - 1 }),
+  }).queryProvider(provider)
+  assert.equal(expired.ok, false)
+  assert.match(expired.error, /Codex 登录已过期/)
+  assert.equal(expiredFetch.calls.length, 0)
+
+  const unauthorizedFetch = recordingFetch(() => responseOf(401, { error: 'unauthorized' }))
+  const unauthorized = await createRunner({
+    fetchImpl: unauthorizedFetch,
+    now: () => now,
+    resolveCodexCredential: async () => ({ access: 'bad-token', accountId: 'account-123', expires: now + 3600000 }),
+  }).queryProvider(provider)
+  assert.equal(unauthorized.ok, false)
+  assert.match(unauthorized.error, /Codex 登录失效/)
+  assert.equal(unauthorizedFetch.calls.length, 1)
+})
+
 // ---------- v0.4.0 订阅类服务（OpenCode Go / Command Code） ----------
 
 test('opencode-go：百分比转剩余，重置时间作为日期明细', async () => {

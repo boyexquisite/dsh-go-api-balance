@@ -343,14 +343,15 @@ test('words: 中英文案 key 齐全、值非空、长度在 UI 上限内', () =
     assert.ok([...dictionary.relayCaption].length <= 200)
     assert.ok([...dictionary.costCaption].length <= 200)
     assert.ok([...dictionary.codingCaption].length <= 200)
+    assert.ok([...dictionary.codexCaption].length <= 200)
     for (const [key, label] of Object.entries(dictionary.fields)) {
       assert.ok(label.trim() !== '', `${locale}.fields.${key} 标签为空`)
       assert.ok([...label].length <= 200, `${locale}.fields.${key} 标签过长`)
     }
     assert.deepEqual(dictionary.presets.map((item) => item.value).sort(), [
-      'acedata', 'aihubmix', 'custom', 'deepseek', 'newapi', 'openai-cost', 'opencode-go', 'openrouter',
+      'acedata', 'aihubmix', 'custom', 'deepseek', 'newapi', 'openai-codex', 'openai-cost', 'opencode-go', 'openrouter',
     ])
-    for (const key of ['templateDeepseekSub', 'templateAcedataSub', 'templateRelaySub', 'templateOpenrouterSub', 'templateAihubmixSub', 'templateCostSub', 'templateCodingSub', 'templateCustomSub']) {
+    for (const key of ['templateDeepseekSub', 'templateAcedataSub', 'templateRelaySub', 'templateOpenrouterSub', 'templateAihubmixSub', 'templateCostSub', 'templateCodexSub', 'templateCodingSub', 'templateCustomSub']) {
       assert.ok(dictionary[key].trim() !== '', key)
     }
     assert.equal(Object.keys(dictionary.authNames).length, 6)
@@ -402,7 +403,7 @@ test('panelView: 添加向导只列主流服务类型（list 行内 choose-templ
   assert.deepEqual(cancelRow.items.map((item) => item.action), ['form-cancel'], '类型列表下要有取消出口')
   assert.deepEqual(cancelRow.items.map((item) => item.label), [words('zh').cancel])
   const list = view.children.find((child) => child.type === 'list')
-  assert.equal(list.items.length, 8)
+  assert.equal(list.items.length, 9)
   assert.deepEqual(list.items.map((item) => item.action), [
     { id: 'choose-template', args: { preset: 'deepseek' } },
     { id: 'choose-template', args: { preset: 'acedata' } },
@@ -410,6 +411,7 @@ test('panelView: 添加向导只列主流服务类型（list 行内 choose-templ
     { id: 'choose-template', args: { preset: 'openrouter' } },
     { id: 'choose-template', args: { preset: 'aihubmix' } },
     { id: 'choose-template', args: { preset: 'openai-cost' } },
+    { id: 'choose-template', args: { preset: 'openai-codex' } },
     { id: 'choose-template', args: { preset: 'opencode-go' } },
     { id: 'choose-template', args: { preset: 'custom' } },
   ])
@@ -420,6 +422,7 @@ test('panelView: 添加向导只列主流服务类型（list 行内 choose-templ
     words('zh').templateOpenrouterSub,
     words('zh').templateAihubmixSub,
     words('zh').templateCostSub,
+    words('zh').templateCodexSub,
     words('zh').templateCodingSub,
     words('zh').templateCustomSub,
   ])
@@ -1027,13 +1030,14 @@ test('表单草稿：usage 字段默认值与 newapi 反解成文本', () => {
 
 // ---------- apply 注册与动作 ----------
 
-function fakeHost () {
+function fakeHost (credentials = null) {
   const regs = { panel: null, refreshIds: [] }
   const dshGo = {
     panel (id, definition) { regs.panel = { id, ...definition } },
     refresh (id) { regs.refreshIds.push(id) },
   }
   const ctx = {
+    get (name) { return name === 'credentials' ? credentials : undefined },
     inject (deps, callback) {
       assert.deepEqual(deps, ['dshGo'])
       callback({ dshGo })
@@ -2132,6 +2136,16 @@ test('actions: save mimo 固定 url/字段，名称为空用默认名', async (t
 })
 
 
+test('panelView: Codex 预设只编辑名称和启用状态，不暴露 OAuth 令牌', () => {
+  const state = freshState({ formOpen: true, form: draftForm(presetDraft('openai-codex')) })
+  const view = panelView(state, FULL_CAPS)
+  assert.deepEqual(collectInputs(view).map((input) => input.bind), ['data.form.name', 'data.form.enabled'])
+  const json = JSON.stringify(view)
+  assert.ok(json.includes(words('zh').codexCaption))
+  assert.ok(!json.includes('data.form.secret'))
+  assert.ok(!json.includes('data.form.url'))
+})
+
 // ---------- v1.9：OpenRouter / OpenAI·Claude 花费 / 空余额 / 菜单信息行 ----------
 
 test('panelView: OpenRouter / OpenAI 花费 / Claude 花费简表只有名称+密钥+caption', () => {
@@ -2598,6 +2612,63 @@ test('OpenCode Go：卡片显示剩余百分比，菜单显示重置日期', () 
   const json = JSON.stringify(panelView(state, FULL_CAPS))
   assert.ok(json.includes('5小时重置'))
   assert.ok(json.includes('2026-11-24'))
+})
+
+test('actions: Codex 预设从 DSH 凭据读取额度且令牌不落盘', async (t) => {
+  const home = await tempHome(t)
+  const oauthSecret = 'test-oauth-never-persist'
+  let fetchCalls = 0
+  const credentials = {
+    async readRecord (key) {
+      assert.equal(key, 'llm-pi-ai/openai-codex')
+      return {
+        kind: 'grant',
+        payload: { access: oauthSecret, accountId: 'account-test', expires: FIXED_NOW + 3600000 },
+      }
+    },
+  }
+  const { ctx } = fakeHost(credentials)
+  const store = apply(ctx, {
+    home,
+    now: () => FIXED_NOW,
+    fetchImpl: async (url, init) => {
+      fetchCalls += 1
+      assert.equal(url, 'https://chatgpt.com/backend-api/wham/usage')
+      assert.equal(init.headers.Authorization, `Bearer ${oauthSecret}`)
+      assert.equal(init.headers['ChatGPT-Account-Id'], 'account-test')
+      return response(200, {
+        plan_type: 'plus',
+        rate_limit: {
+          primary_window: { used_percent: 2, reset_at: FIXED_NOW / 1000 + 3600 },
+          secondary_window: { used_percent: 0, reset_at: FIXED_NOW / 1000 + 86400 },
+        },
+      })
+    },
+  })
+  await store.ensureReady()
+  await store.actions.add({}, { locale: 'zh-CN' })
+  await store.actions['choose-template']({}, { locale: 'zh-CN', value: { preset: 'openai-codex' } })
+  const saveEffects = await store.actions.save({}, {
+    locale: 'zh-CN',
+    value: { values: { 'data.form.name': '', 'data.form.enabled': true } },
+  })
+  assert.equal(saveEffects.at(-1).text, '已保存')
+  const savedConfig = await loadConfig(configPath(home))
+  const provider = savedConfig.providers[0]
+  assert.equal(provider.preset, 'openai-codex')
+  assert.equal(provider.secret, '')
+
+  const handler = store.actions.refresh({}, { locale: 'zh-CN' })
+  await handler.result(new AbortController().signal)
+  const data = panelData(store.state, FULL_CAPS)
+  assert.equal(data.cards[0].name, 'Codex')
+  assert.equal(data.cards[0].balance, '98%')
+  assert.equal(data.cards[0].usage0.label, '5小时剩余%')
+  assert.equal(data.cards[0].usage0.value, '98')
+  assert.ok(fetchCalls >= 1)
+  assert.ok(!JSON.stringify(savedConfig).includes(oauthSecret))
+  assert.ok(!JSON.stringify(data).includes(oauthSecret))
+  assert.ok(!JSON.stringify(store.state.results).includes(oauthSecret))
 })
 
 test('actions: save AIHubMix stores only the Manage Key and fixed balance endpoint', async (t) => {
