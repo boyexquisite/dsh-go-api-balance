@@ -2665,6 +2665,16 @@ test('actions: Codex 预设从 DSH 凭据读取额度且令牌不落盘', async 
   assert.equal(data.cards[0].balance, '98%')
   assert.equal(data.cards[0].usage0.label, '5小时剩余%')
   assert.equal(data.cards[0].usage0.value, '98')
+  assert.equal(data.cards[0].usageLine0, '5小时剩余 98%')
+  assert.equal(data.cards[0].usageLine1, '本周剩余 100%')
+  const card = panelView(store.state, FULL_CAPS).children[0]
+  assert.equal(nodesOfType(card, 'metric').length, 0, 'Codex 不再单挂大号百分比')
+  const quotaTexts = nodesOfType(card, 'text').filter((node) => node.text && node.text.$)
+  assert.deepEqual(quotaTexts.map((node) => node.text.$), [
+    'data.cards[0].usageLine0',
+    'data.cards[0].usageLine1',
+  ])
+  assert.equal(quotaTexts[0].style.weight, 'bold')
   assert.ok(fetchCalls >= 1)
   assert.ok(!JSON.stringify(savedConfig).includes(oauthSecret))
   assert.ok(!JSON.stringify(data).includes(oauthSecret))
