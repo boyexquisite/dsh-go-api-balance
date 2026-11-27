@@ -1780,7 +1780,7 @@ test('actions: 编辑旧 newapi（url 带 /v1）反推根地址，保存即修�
       values: {
         'data.form.name': broken.name,
         'data.form.siteBase': store.state.form.siteBase,
-        'data.form.secret': '', // 留空 = 沿用已保存密钥
+        'data.form.secret': broken.secret, // 旧配置新增用量接口，重新确认密钥
         'data.form.symbol': '¥',
         'data.form.multiplier': 1,
       },
@@ -1792,7 +1792,7 @@ test('actions: 编辑旧 newapi（url 带 /v1）反推根地址，保存即修�
     saved.usageUrl,
     'https://sta1n.ai/api/data/self?start_timestamp={7d}&end_timestamp={now}&default_time=day',
   )
-  assert.equal(saved.secret, broken.secret, '编辑留空沿用原密钥')
+  assert.equal(saved.secret, broken.secret, '新增用量接口时明确重填的密钥被保存')
   assert.equal(saved.autoUnit, false, '旧配置缺 autoUnit 按 false')
 })
 
