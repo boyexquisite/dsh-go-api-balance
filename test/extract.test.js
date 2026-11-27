@@ -165,6 +165,15 @@ test('evalExpression 跳过缺失/非数字项，全无数值返回 null', () =>
   assert.equal(evalExpression({ data: [{ amount: null }] }, 'data[].amount'), null)
 })
 
+test('内层 [] 为空数组时按 0 汇总（本月无调用），顶层空仍 null', () => {
+  // 2026-11-27 全检 P2：OpenAI/Claude 花费为 0 的月份原来整行显示「—」。
+  assert.equal(evalExpression({ data: [{ results: [] }] }, 'data[].results[].amount'), 0)
+  assert.equal(evalExpression({ data: [{ results: [] }] }, 'data[].results[].missing'), 0)
+  // 顶层就没有数据时不能冒充 0
+  assert.equal(evalExpression({ data: [] }, 'data[].results[].amount'), null)
+  assert.equal(evalExpression({}, 'data[].results[].amount'), null)
+})
+
 test('evalExpression 对 [] 通配对象取 values，另支持字符串键下标', () => {
   const obj = { data: { a: { v: 1 }, b: { v: 2 } } }
   assert.equal(evalExpression(obj, 'data[].v'), 3)

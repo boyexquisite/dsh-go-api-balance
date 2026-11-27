@@ -1079,7 +1079,9 @@ test('resolveUnit CUSTOM：自定义符号与汇率（🍪）', async () => {
   assert.deepEqual(unit, { divisor: 200000, multiplier: 2.5, symbol: '🍪', decimals: 2 })
 })
 
-test('resolveUnit CNY/CUSTOM：非法汇率（0/负数/NaN/非数字）回落到 1，不把余额算成负数', async () => {
+test('resolveUnit CNY/CUSTOM：非法汇率（0/负数/NaN/非数字）判定为单位未知，不用 1 冒充', async () => {
+  // 2026-11-27 全检 P1：原行为回落 multiplier=1 且仍标 ¥，真汇率 7.2 时余额少算约 7 倍。
+  // 现在返回 null（交给 provider 自己的配置兜底），测试同步改。
   const cases = [0, -7.2, 'nope', null, Infinity]
   for (const [index, rate] of cases.entries()) {
     const impl = statusOnlyFetch(statusBody({ quota_display_type: 'CNY', usd_exchange_rate: rate }))
@@ -1087,7 +1089,7 @@ test('resolveUnit CNY/CUSTOM：非法汇率（0/负数/NaN/非数字）回落到
       { url: `https://unit-cny-bad-${index}.example/api/user/self` },
       { fetchImpl: impl },
     )
-    assert.deepEqual(unit, { divisor: 500000, multiplier: 1, symbol: '¥', decimals: 2 }, `CNY rate ${rate}`)
+    assert.equal(unit, null, `CNY rate ${rate}`)
   }
   const custom = await resolveUnit(
     { url: 'https://unit-custom-bad.example/api/user/self' },
@@ -1098,7 +1100,7 @@ test('resolveUnit CNY/CUSTOM：非法汇率（0/负数/NaN/非数字）回落到
       })),
     },
   )
-  assert.equal(custom.multiplier, 1)
+  assert.equal(custom, null)
 })
 
 test('resolveUnit TOKENS：不换算、无符号', async () => {
@@ -1119,23 +1121,24 @@ test('resolveUnit display_in_currency=false 按 TOKENS 处理', async () => {
   assert.deepEqual(unit, { divisor: 1, multiplier: 1, symbol: '', decimals: 0 })
 })
 
-test('resolveUnit 缺字段回退：qpu 500000、汇率 1、空符号、支持根级 data', async () => {
-  const missingQpu = statusOnlyFetch({ display_in_currency: true, quota_display_type: 'CUSTOM' })
+test('resolveUnit 缺字段回退：qpu 500000、汇率缺失判单位未知、支持根级 data', async () => {
+  // 2026-11-27 全检 P1：汇率字段缺失/非法不再用 1 冒充；qpu 缺失仍回落 500000。
+  const missingQpu = statusOnlyFetch({ display_in_currency: true, quota_display_type: 'CUSTOM', custom_currency_exchange_rate: 2 })
   assert.deepEqual(
     await resolveUnit({ url: 'https://unit-missing-qpu.example/api/user/self' }, { fetchImpl: missingQpu }),
-    { divisor: 500000, multiplier: 1, symbol: '', decimals: 2 },
+    { divisor: 500000, multiplier: 2, symbol: '', decimals: 2 },
   )
 
   const noRate = statusOnlyFetch({ display_in_currency: true, quota_display_type: 'CNY', quota_per_unit: 'abc' })
-  assert.deepEqual(
+  assert.equal(
     await resolveUnit({ url: 'https://unit-missing-rate.example/api/user/self' }, { fetchImpl: noRate }),
-    { divisor: 500000, multiplier: 1, symbol: '¥', decimals: 2 },
+    null,
   )
 
   const customFallback = statusOnlyFetch({ display_in_currency: true, quota_display_type: 'CUSTOM', custom_currency_symbol: '🍪' })
-  assert.deepEqual(
+  assert.equal(
     await resolveUnit({ url: 'https://unit-custom-fallback.example/api/user/self' }, { fetchImpl: customFallback }),
-    { divisor: 500000, multiplier: 1, symbol: '🍪', decimals: 2 },
+    null,
   )
 })
 
@@ -1713,7 +1716,7 @@ test('OpenAI 花费全链路：占位符替换 + 嵌套数组求和', async () =
   assert.deepEqual(result.usage, [{ label: '本月花费', value: 3.75 }])
   // 同一个 Admin key 追加的 token 用量
   assert.deepEqual(result.extra, [
-    { label: '本月输入 Token', value: 1500, kind: 'count' },
+    { label: '本月输入 Token（含缓存）', value: 1500, kind: 'count' },
     { label: '本月输出 Token', value: 300, kind: 'count' },
     { label: '本月请求数', value: 5, kind: 'count' },
   ])
@@ -2294,7 +2297,7 @@ test('远端字符串收口：货币符号/明细/附加文本都有长度上限
   const long = 'x'.repeat(500)
   const impl = recordingFetch((url) => {
     if (url.endsWith('/api/status')) {
-      return responseOf(200, { data: { quota_display_type: 'CUSTOM', display_in_currency: true, custom_currency_symbol: long, quota_per_unit: 500000 } })
+      return responseOf(200, { data: { quota_display_type: 'CUSTOM', display_in_currency: true, custom_currency_symbol: long, custom_currency_exchange_rate: 1, quota_per_unit: 500000 } })
     }
     if (url.includes('/extra')) return responseOf(200, { data: { msg: long } })
     return responseOf(200, { data: { balance: 1, note: long } })

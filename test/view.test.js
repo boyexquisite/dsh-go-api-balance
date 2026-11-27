@@ -2499,7 +2499,7 @@ test('ensureReady 迁移：老配置补新明细 / OpenAI·Claude 花费补 toke
   assert.equal(relay.detailPaths[1].kind, 'count')
   assert.equal(cost.extraUrl.includes('/organization/usage/completions'), true)
   assert.equal(cost.extraFields.length, 3)
-  assert.equal(cost.extraFields[0].label, '本月输入 Token')
+  assert.equal(cost.extraFields[0].label, '本月输入 Token（含缓存）')
 })
 
 test('actions: choose-template oneapi 保存后是 one-api 配置', async (t) => {
